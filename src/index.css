@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #1e293b;
+  --muted: #64748b;
+  --border: #cbd5e1;
+  --input: #f1f5f9;
+  --primary: #0d9488;
+  --primary-foreground: #ffffff;
+}
+
+.dark {
+  --background: #070913;
+  --foreground: #f8fafc;
+  --card: #0c0e18;
+  --card-foreground: #cbd5e1;
+  --muted: #94a3b8;
+  --border: #1e293b;
+  --input: #02040a;
+  --primary: #14b8a6;
+  --primary-foreground: #ffffff;
+}
+
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+/* Custom Theme Classes */
+.theme-bg {
+  background-color: var(--background);
+}
+.theme-fg {
+  color: var(--foreground);
+}
+.theme-card {
+  background-color: var(--card);
+  color: var(--card-foreground);
+  border-color: var(--border);
+}
+.theme-muted {
+  color: var(--muted);
+}
+.theme-border {
+  border-color: var(--border);
+}
+.theme-input {
+  background-color: var(--input);
+  color: var(--card-foreground);
+  border-color: var(--border);
+}
+.theme-primary {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
