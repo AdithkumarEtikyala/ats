@@ -43,33 +43,47 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     seedSuperAdmin();
 
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.email.toLowerCase()));
-          if (userDoc.exists()) {
-            setUser(userDoc.data());
-          } else {
-            // Fallback user metadata
-            setUser({
-              email: firebaseUser.email,
-              name: firebaseUser.displayName || 'Guest User',
-              role: 'Guest',
-              hotelId: '',
-              employeeId: 'GUEST',
-              phone: firebaseUser.phoneNumber || ''
-            });
+    const unsubscribe = onAuthStateChanged(
+      auth, 
+      async (firebaseUser) => {
+        if (firebaseUser) {
+          try {
+            const userDoc = await getDoc(doc(db, 'users', firebaseUser.email.toLowerCase()));
+            if (userDoc.exists()) {
+              setUser(userDoc.data());
+            } else {
+              setUser({
+                email: firebaseUser.email,
+                name: firebaseUser.displayName || 'Guest User',
+                role: 'Guest',
+                hotelId: '',
+                employeeId: 'GUEST',
+                phone: firebaseUser.phoneNumber || ''
+              });
+            }
+          } catch (err) {
+            console.error('Failed to load user metadata from Firestore:', err);
           }
-        } catch (err) {
-          console.error('Failed to load user metadata from Firestore:', err);
+        } else {
+          setUser(null);
         }
-      } else {
-        setUser(null);
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Auth state listener error:', err);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
 
-    return () => unsubscribe();
+    // Safety fallback timeout to prevent infinite blank/loading screens
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 2000);
+
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
   }, []);
 
   const login = async (email, password, hotelId) => {
@@ -108,12 +122,8 @@ export const AuthProvider = ({ children }) => {
 
   const registerSelf = async (newUser) => {
     try {
-      // 1. Register account via backend API
       await api.post('/api/auth/register', newUser);
-      
-      // 2. Sign in client-side to set session
       await signInWithEmailAndPassword(auth, newUser.email, newUser.password || 'password123');
-      
       return { success: true };
     } catch (err) {
       console.error('Failed self-registration:', err);
@@ -134,7 +144,17 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{ user, isLoggedIn, login, logout, registerUser, registerSelf, loading }}>
-      {!loading && children}
+      {loading ? (
+        <div className="flex min-h-screen items-center justify-center bg-slate-900 text-white">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
+            <p className="text-sm font-medium text-slate-400">Loading AtithiSphere...</p>
+          </div>
+        </div>
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 };
+
