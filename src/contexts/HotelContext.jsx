@@ -1,40 +1,42 @@
-import React, { createContext, useState, useEffect } from 'react';
-import { MOCK_HOTELS } from '../utils/mockData';
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
+import { AuthContext } from './AuthContext';
+import api from '../utils/api';
 
 export const HotelContext = createContext();
 
 export const HotelProvider = ({ children }) => {
-  const [hotels, setHotels] = useState(() => {
-    const saved = localStorage.getItem('atithisphere_v3_hotels');
-    let loadedHotels = saved ? JSON.parse(saved) : [];
-    
-    // Auto-merge new default hotels to prevent cache stagnation
-    const merged = [...loadedHotels];
-    MOCK_HOTELS.forEach(def => {
-      const exists = merged.some(h => h.id === def.id);
-      if (!exists) {
-        merged.push(def);
-      }
+  const [hotels, setHotels] = useState([]);
+  const [activeWorkspaceHotel, setActiveWorkspaceHotel] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const { user } = useContext(AuthContext);
+
+  // Listen to hotels in Firestore
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'hotels'), (snapshot) => {
+      const hotelList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setHotels(hotelList);
+      setLoading(false);
     });
 
-    localStorage.setItem('atithisphere_v3_hotels', JSON.stringify(merged));
-    return merged;
-  });
+    return () => unsubscribe();
+  }, []);
 
-  const [activeWorkspaceHotel, setActiveWorkspaceHotel] = useState(null);
-
+  // Sync workspace assignment reactively when user or hotels change
   useEffect(() => {
-    const rawUser = localStorage.getItem('atithisphere_v3_user');
-    if (rawUser) {
-      const parsedUser = JSON.parse(rawUser);
-      if (parsedUser.hotelId && parsedUser.hotelId !== 'all') {
-        const found = hotels.find((h) => h.id === parsedUser.hotelId);
-        if (found) {
-          setActiveWorkspaceHotel(found);
-        }
+    if (user && user.hotelId && user.hotelId !== 'all') {
+      const found = hotels.find(h => h.id === user.hotelId);
+      if (found) {
+        setActiveWorkspaceHotel(found);
       }
+    } else if (!user) {
+      setActiveWorkspaceHotel(null);
     }
-  }, [hotels]);
+  }, [user, hotels]);
 
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('atithisphere_v3_dark');
@@ -68,24 +70,35 @@ export const HotelProvider = ({ children }) => {
     }
   };
 
-  const addHotel = (hotel) => {
-    const newH = {
-      ...hotel,
-      id: `hotel-${Math.floor(Math.random() * 900) + 100}`,
-      rating: 4.5
-    };
-    const updated = [...hotels, newH];
-    setHotels(updated);
-    localStorage.setItem('atithisphere_v3_hotels', JSON.stringify(updated));
-    return newH;
+  const addHotel = async (hotel) => {
+    try {
+      const response = await api.post('/api/hotels', hotel);
+      return response.data;
+    } catch (err) {
+      console.error('Failed to add hotel via backend:', err);
+    }
   };
 
-  const updateHotel = (id, updatedFields) => {
-    const updated = hotels.map(h => h.id === id ? { ...h, ...updatedFields } : h);
-    setHotels(updated);
-    localStorage.setItem('atithisphere_v3_hotels', JSON.stringify(updated));
-    if (activeWorkspaceHotel?.id === id) {
-      setActiveWorkspaceHotel({ ...activeWorkspaceHotel, ...updatedFields });
+  const updateHotel = async (id, updatedFields) => {
+    try {
+      await api.put(`/api/hotels/${id}`, updatedFields);
+      if (activeWorkspaceHotel?.id === id) {
+        setActiveWorkspaceHotel(prev => ({ ...prev, ...updatedFields }));
+      }
+    } catch (err) {
+      console.error('Failed to update hotel via backend:', err);
+    }
+  };
+
+  const deleteHotel = async (id) => {
+    try {
+      await api.delete(`/api/hotels/${id}`);
+      if (activeWorkspaceHotel?.id === id) {
+        setActiveWorkspaceHotel(null);
+      }
+    } catch (err) {
+      console.error('Failed to delete hotel via backend:', err);
+      throw err;
     }
   };
 
@@ -105,8 +118,10 @@ export const HotelProvider = ({ children }) => {
       selectHotel, 
       addHotel, 
       updateHotel,
+      deleteHotel,
       darkMode, 
-      toggleDarkMode 
+      toggleDarkMode,
+      loading
     }}>
       {children}
     </HotelContext.Provider>

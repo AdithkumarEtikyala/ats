@@ -1,93 +1,111 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { MOCK_TICKETS, MOCK_CHAT_SESSIONS } from '../utils/mockData';
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  arrayUnion, 
+  increment,
+  getDocs,
+  query,
+  where,
+  getDoc
+} from 'firebase/firestore';
+import { db } from '../utils/firebase';
+import api from '../utils/api';
 
 export const TicketContext = createContext();
 
 export const TicketProvider = ({ children }) => {
-  const [tickets, setTickets] = useState(() => {
-    const saved = localStorage.getItem('atithisphere_v3_tickets');
-    return saved ? JSON.parse(saved) : MOCK_TICKETS;
-  });
+  const [tickets, setTickets] = useState([]);
+  const [chats, setChats] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [chats, setChats] = useState(() => {
-    const saved = localStorage.getItem('atithisphere_v3_chats');
-    return saved ? JSON.parse(saved) : MOCK_CHAT_SESSIONS;
-  });
+  // Sync tickets & chats real-time
+  useEffect(() => {
+    const unsubTickets = onSnapshot(collection(db, 'tickets'), (snapshot) => {
+      const ticketsList = snapshot.docs.map(doc => {
+        const tkt = { id: doc.id, ...doc.data() };
+        
+        // Dynamically adjust slaSecondsLeft on queries if active
+        if (tkt.status !== 'Completed' && tkt.status !== 'Closed' && tkt.slaSecondsLeft > 0) {
+          const elapsed = Math.floor((Date.now() - new Date(tkt.createdTime).getTime()) / 1000);
+          tkt.slaSecondsLeft = Math.max(0, 600 - elapsed);
+        }
+        return tkt;
+      });
+      setTickets(ticketsList);
+      setLoading(false);
+    });
 
-  // Dynamic SLA Countdown Ticker
+    const unsubChats = onSnapshot(collection(db, 'chats'), (snapshot) => {
+      const chatsList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setChats(chatsList);
+    });
+
+    return () => {
+      unsubTickets();
+      unsubChats();
+    };
+  }, []);
+
+  // Visual countdown timer for active UI countdowns
   useEffect(() => {
     const timer = setInterval(() => {
-      setTickets((prevTickets) => {
-        const updated = prevTickets.map((tkt) => {
+      setTickets((prevTickets) =>
+        prevTickets.map((tkt) => {
           if (tkt.status !== 'Completed' && tkt.status !== 'Closed' && tkt.slaSecondsLeft > 0) {
             return { ...tkt, slaSecondsLeft: tkt.slaSecondsLeft - 1 };
           }
           return tkt;
-        });
-        localStorage.setItem('atithisphere_v3_tickets', JSON.stringify(updated));
-        return updated;
-      });
+        })
+      );
     }, 1000);
 
     return () => clearInterval(timer);
   }, []);
 
-  const createTicket = (ticket) => {
-    const newTkt = {
-      ...ticket,
-      id: `tkt-${Math.floor(Math.random() * 9000) + 1000}`,
-      status: 'New',
-      slaSecondsLeft: 600, // 10 minutes default
-      createdTime: new Date().toISOString()
-    };
-    const updated = [newTkt, ...tickets];
-    setTickets(updated);
-    localStorage.setItem('atithisphere_v3_tickets', JSON.stringify(updated));
-    return newTkt;
+  const createTicket = async (ticket) => {
+    try {
+      const response = await api.post('/api/tickets', ticket);
+      return response.data;
+    } catch (err) {
+      console.error('Failed to create ticket via backend:', err);
+    }
   };
 
-  const updateTicketStatus = (ticketId, newStatus) => {
-    const updated = tickets.map((tkt) => {
-      if (tkt.id === ticketId) {
-        return { ...tkt, status: newStatus };
-      }
-      return tkt;
-    });
-    setTickets(updated);
-    localStorage.setItem('atithisphere_v3_tickets', JSON.stringify(updated));
+  const updateTicketStatus = async (ticketId, newStatus) => {
+    try {
+      await api.put(`/api/tickets/${ticketId}/status`, { status: newStatus });
+    } catch (err) {
+      console.error('Failed to update ticket status via backend:', err);
+    }
   };
 
-  const assignStaff = (ticketId, staffName) => {
-    const updated = tickets.map((tkt) => {
-      if (tkt.id === ticketId) {
-        return { ...tkt, assignedStaff: staffName, status: 'Accepted' };
-      }
-      return tkt;
-    });
-    setTickets(updated);
-    localStorage.setItem('atithisphere_v3_tickets', JSON.stringify(updated));
+  const assignStaff = async (ticketId, staffName) => {
+    try {
+      await api.put(`/api/tickets/${ticketId}/assign`, { staffName });
+    } catch (err) {
+      console.error('Failed to assign staff via backend:', err);
+    }
   };
 
-  const sendChatMessage = (guestPhone, text, sender = 'bot') => {
-    const updatedChats = chats.map((c) => {
-      if (c.guestPhone === guestPhone) {
-        return {
-          ...c,
-          messages: [
-            ...c.messages,
-            {
-              id: `m-${Date.now()}`,
-              sender,
-              text,
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }
-          ]
-        };
-      }
-      return c;
-    });
-    setChats(updatedChats);
-    localStorage.setItem('atithisphere_v3_chats', JSON.stringify(updatedChats));
+  const sendChatMessage = async (guestPhone, text, sender = 'bot', guestName = '', hotelId = '') => {
+    try {
+      await api.post('/api/chats/messages', {
+        guestPhone,
+        text,
+        sender,
+        guestName,
+        hotelId
+      });
+    } catch (err) {
+      console.error('Failed to send chat message via backend:', err);
+    }
   };
 
   return (
@@ -98,7 +116,8 @@ export const TicketProvider = ({ children }) => {
         createTicket,
         updateTicketStatus,
         assignStaff,
-        sendChatMessage
+        sendChatMessage,
+        loading
       }}
     >
       {children}

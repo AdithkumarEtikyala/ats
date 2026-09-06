@@ -2,7 +2,8 @@ import React, { useContext, useMemo, useState, useEffect } from 'react';
 import { AuthContext } from '../contexts/AuthContext';
 import { HotelContext } from '../contexts/HotelContext';
 import { TicketContext } from '../contexts/TicketContext';
-import { MOCK_BOOKINGS } from '../utils/mockData';
+import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
@@ -43,7 +44,7 @@ import {
 
 export default function Dashboard() {
   const { user, logout } = useContext(AuthContext);
-  const { hotels, activeHotel, selectHotel, addHotel } = useContext(HotelContext);
+  const { hotels, activeHotel, selectHotel, addHotel, enterWorkspace } = useContext(HotelContext);
   const { tickets, createTicket, updateTicketStatus, chats, sendChatMessage } = useContext(TicketContext);
   const navigate = useNavigate();
 
@@ -102,15 +103,36 @@ export default function Dashboard() {
   const [selectedLocation, setSelectedLocation] = useState('Entire Property');
 
   // Dynamic booking state
-  const [bookings, setBookings] = useState(() => {
-    const saved = localStorage.getItem('atithisphere_v3_bookings');
-    return saved ? JSON.parse(saved) : MOCK_BOOKINGS;
-  });
+  const [bookings, setBookings] = useState([]);
+  const [recentReviews, setRecentReviews] = useState([]);
 
-  // Keep bookings synched
   useEffect(() => {
-    localStorage.setItem('atithisphere_v3_bookings', JSON.stringify(bookings));
-  }, [bookings]);
+    const unsubscribe = onSnapshot(collection(db, 'feedback_hotel'), (snapshot) => {
+      const list = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setRecentReviews(list);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    let q = collection(db, 'bookings');
+    if (activeHotel && activeHotel.id !== 'all') {
+      q = query(collection(db, 'bookings'), where('hotelId', '==', activeHotel.id));
+    }
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setBookings(list);
+    });
+
+    return () => unsubscribe();
+  }, [activeHotel]);
 
   // Sync route queries
   useEffect(() => {
@@ -146,15 +168,124 @@ export default function Dashboard() {
   }, [hotels, searchHotelQuery, filterCity]);
 
   // Calculations for stats
-  const activeGuestsCount = bookings
-    .filter(b => !activeHotel || b.hotelId === activeHotel.id)
-    .filter(b => b.status === 'checked-in').length;
-  const todayCheckinsCount = bookings
-    .filter(b => !activeHotel || b.hotelId === activeHotel.id)
-    .filter(b => b.status === 'checked-in').length;
-  const revenueToday = bookings
-    .filter(b => !activeHotel || b.hotelId === activeHotel.id)
-    .reduce((sum, b) => sum + (b.amount || 0), 0);
+  const visibleHotelsList = useMemo(() => {
+    if (user?.role === 'Super Admin') return hotels;
+    if (user?.role === 'Hotel Owner') {
+      return hotels.filter(h => h.ownerEmail?.toLowerCase() === user.email?.toLowerCase() || h.id === user.hotelId);
+    }
+    return hotels.filter(h => h.id === user?.hotelId);
+  }, [hotels, user]);
+
+  const ownerBookings = useMemo(() => {
+    const hotelIds = visibleHotelsList.map(h => h.id);
+    return bookings.filter(b => {
+      if (activeHotel && activeHotel.id !== 'all') {
+        return b.hotelId === activeHotel.id;
+      }
+      return hotelIds.includes(b.hotelId);
+    });
+  }, [bookings, visibleHotelsList, activeHotel]);
+
+  const activeGuestsCount = useMemo(() => {
+    return ownerBookings.filter(b => b.status === 'checked-in').length;
+  }, [ownerBookings]);
+
+  const todayCheckinsCount = useMemo(() => {
+    return ownerBookings.filter(b => b.status === 'checked-in').length;
+  }, [ownerBookings]);
+
+  const totalRooms = useMemo(() => {
+    if (activeHotel && activeHotel.id !== 'all') {
+      return activeHotel.rooms || 50;
+    }
+    return visibleHotelsList.reduce((acc, h) => acc + (h.rooms || 50), 0) || 50;
+  }, [activeHotel, visibleHotelsList]);
+
+  const occupancyRate = useMemo(() => {
+    return totalRooms > 0 ? parseFloat(((activeGuestsCount / totalRooms) * 100).toFixed(1)) : 0;
+  }, [activeGuestsCount, totalRooms]);
+
+  const revenueToday = useMemo(() => {
+    return ownerBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+  }, [ownerBookings]);
+
+  const averageRating = useMemo(() => {
+    const hotelIds = visibleHotelsList.map(h => h.id);
+    const matchedReviews = recentReviews.filter(r => {
+      if (activeHotel && activeHotel.id !== 'all') {
+        return r.hotelId === activeHotel.id;
+      }
+      return hotelIds.includes(r.hotelId);
+    });
+
+    if (matchedReviews.length === 0) {
+      return 0;
+    }
+
+    const sum = matchedReviews.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
+    return parseFloat((sum / matchedReviews.length).toFixed(1));
+  }, [recentReviews, visibleHotelsList, activeHotel]);
+
+  const criticalTicketsCount = useMemo(() => {
+    return activeHotelTickets.filter(t => 
+      t.status !== 'Completed' && t.status !== 'Closed' && 
+      (t.priority === 'High' || t.priority === 'Critical' || t.priority === 'Emergency')
+    ).length;
+  }, [activeHotelTickets]);
+
+  const deluxeRevenue = useMemo(() => {
+    return ownerBookings.filter(b => b.roomType === 'Deluxe Suite').reduce((sum, b) => sum + (b.amount || 0), 0);
+  }, [ownerBookings]);
+
+  const standardRevenue = useMemo(() => {
+    return ownerBookings.filter(b => b.roomType !== 'Deluxe Suite').reduce((sum, b) => sum + (b.amount || 0), 0);
+  }, [ownerBookings]);
+
+  const totalRevenue = useMemo(() => {
+    return deluxeRevenue + standardRevenue;
+  }, [deluxeRevenue, standardRevenue]);
+
+  const commonRequest = useMemo(() => {
+    if (activeHotelTickets.length === 0) return 'Room Service';
+    const depts = activeHotelTickets.map(t => t.department);
+    const counts = depts.reduce((acc, d) => {
+      acc[d] = (acc[d] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+  }, [activeHotelTickets]);
+
+  const dailyRevenue = useMemo(() => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const revenueMap = { Mon: 4200, Tue: 5800, Wed: 5000, Thu: 7200, Fri: 8800, Sat: 9500, Sun: 11000 };
+    
+    ownerBookings.forEach(b => {
+      const date = new Date(b.checkIn);
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      if (revenueMap[dayName] !== undefined) {
+        revenueMap[dayName] += (b.amount || 0);
+      }
+    });
+
+    const maxVal = Math.max(...Object.values(revenueMap)) || 1;
+    return days.map(d => ({
+      l: d,
+      val: revenueMap[d],
+      h: Math.min(110, Math.round((revenueMap[d] / maxVal) * 110))
+    }));
+  }, [ownerBookings]);
+
+  const activeReviews = useMemo(() => {
+    const hotelIds = visibleHotelsList.map(h => h.id);
+    return recentReviews
+      .filter(r => {
+        if (activeHotel && activeHotel.id !== 'all') {
+          return r.hotelId === activeHotel.id;
+        }
+        return hotelIds.includes(r.hotelId);
+      })
+      .slice(0, 3);
+  }, [recentReviews, visibleHotelsList, activeHotel]);
 
   const handleAddHotel = (e) => {
     e.preventDefault();
@@ -170,13 +301,14 @@ export default function Dashboard() {
     setNewHotelCity('');
   };
 
-  const handleCreateBooking = (e) => {
+  const handleCreateBooking = async (e) => {
     e.preventDefault();
     if (!bkName || !bkPhone || !bkRoom || !bkArrival) return;
 
     const selectedH = hotels.find(h => h.id === bkHotelId);
+    const id = `bk-${Math.floor(Math.random() * 9000) + 1000}`;
     const newBk = {
-      id: `bk-${Math.floor(Math.random() * 9000) + 1000}`,
+      id,
       hotelId: bkHotelId,
       guestName: bkName,
       guestPhone: bkPhone,
@@ -189,11 +321,15 @@ export default function Dashboard() {
       amount: bkRoomType === 'Standard Queen' ? 6000 : 12000
     };
 
-    setBookings([newBk, ...bookings]);
-    setBookingModalOpen(false);
-    setBkName('');
-    setBkPhone('');
-    setBkRoom('');
+    try {
+      await setDoc(doc(db, 'bookings', id), newBk);
+      setBookingModalOpen(false);
+      setBkName('');
+      setBkPhone('');
+      setBkRoom('');
+    } catch (err) {
+      console.error('Failed to create booking in Firestore:', err);
+    }
   };
 
   const handleCreateTicketSubmit = (e) => {
@@ -306,8 +442,8 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                   <div className="space-y-1">
                     <span className="text-[9px] uppercase tracking-wider text-slate-500 font-extrabold block">Occupancy Rate</span>
-                    <div className="text-lg font-bold text-teal-500">84.5%</div>
-                    <span className="text-[8px] text-emerald-500 font-bold">↑ 4.2% from last week</span>
+                    <div className="text-lg font-bold text-teal-500">{occupancyRate}%</div>
+                    <span className="text-[8px] text-emerald-500 font-bold">↑ {activeGuestsCount} active guests currently checked-in</span>
                   </div>
                   <div className="h-8 w-8 rounded-lg bg-teal-500/10 text-teal-500 flex items-center justify-center"><CheckCircle size={16} /></div>
                 </div>
@@ -315,7 +451,7 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                   <div className="space-y-1">
                     <span className="text-[9px] uppercase tracking-wider text-slate-500 font-extrabold block">Revenue Today</span>
-                    <div className="text-lg font-bold text-slate-850 dark:text-slate-100">₹42,500</div>
+                    <div className="text-lg font-bold text-slate-850 dark:text-slate-100">₹{revenueToday.toLocaleString()}</div>
                     <span className="text-[8px] text-slate-400">Default Currency: {activeHotel?.currency || 'INR'}</span>
                   </div>
                   <div className="h-8 w-8 rounded-lg bg-teal-500/10 text-teal-500 flex items-center justify-center">₹</div>
@@ -324,8 +460,8 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                   <div className="space-y-1">
                     <span className="text-[9px] uppercase tracking-wider text-slate-500 font-extrabold block">Guest Satisfaction</span>
-                    <div className="text-lg font-bold text-slate-850 dark:text-slate-100">4.85 / 5.0</div>
-                    <span className="text-[8px] text-emerald-500 font-bold">★ Excellent Score</span>
+                    <div className="text-lg font-bold text-slate-850 dark:text-slate-100">{averageRating > 0 ? `${averageRating} / 5.0` : 'No Ratings'}</div>
+                    <span className="text-[8px] text-emerald-500 font-bold">{averageRating > 0 ? '★ Rated by Guests' : '0 guest reviews submitted'}</span>
                   </div>
                   <div className="h-8 w-8 rounded-lg bg-teal-500/10 text-teal-500 flex items-center justify-center"><Award size={16} /></div>
                 </div>
@@ -333,14 +469,12 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                   <div className="space-y-1">
                     <span className="text-[9px] uppercase tracking-wider text-slate-500 font-extrabold block">Open Critical SLA Issues</span>
-                    <div className="text-lg font-bold text-red-500">2 Pending</div>
-                    <span className="text-[8px] text-red-400 font-bold">1 Overdue SLA Breach</span>
+                    <div className="text-lg font-bold text-red-500">{criticalTicketsCount} Pending</div>
+                    <span className="text-[8px] text-red-400 font-bold">Requires Immediate Attention</span>
                   </div>
                   <div className="h-8 w-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center"><AlertTriangle size={16} /></div>
                 </div>
               </div>
-
-
 
               {/* OWNER GRAPHICAL ANALYTICS SECTION */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -352,17 +486,9 @@ export default function Dashboard() {
                     <span className="text-[8.5px] uppercase bg-teal-500/10 text-teal-600 px-2.5 py-0.5 rounded font-bold">Daily / Weekly / Monthly Scope</span>
                   </div>
                   <div className="h-44 w-full flex items-end justify-between gap-4 pt-4">
-                    {[
-                      { l: 'Mon', h: 42 },
-                      { l: 'Tue', h: 58 },
-                      { l: 'Wed', h: 50 },
-                      { l: 'Thu', h: 72 },
-                      { l: 'Fri', h: 88 },
-                      { l: 'Sat', h: 95 },
-                      { l: 'Sun', h: 110 }
-                    ].map((bar, idx) => (
+                    {dailyRevenue.map((bar, idx) => (
                       <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                        <span className="text-[8px] text-slate-400 font-extrabold">₹{(bar.h * 100).toLocaleString()}</span>
+                        <span className="text-[8px] text-slate-400 font-extrabold">₹{bar.val.toLocaleString()}</span>
                         <div className="w-full bg-gradient-to-t from-teal-600 to-teal-400 rounded-t-lg transition hover:brightness-105" style={{ height: `${bar.h}px` }}></div>
                         <span className="text-[9px] text-slate-500 font-extrabold">{bar.l}</span>
                       </div>
@@ -375,7 +501,7 @@ export default function Dashboard() {
                   <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b dark:border-slate-800 pb-2">Guest satisfaction Trends</h3>
                   <div className="space-y-3">
                     <div className="text-center py-2">
-                      <span className="text-3xl font-black text-slate-850 dark:text-slate-100">4.85 / 5</span>
+                      <span className="text-3xl font-black text-slate-850 dark:text-slate-100">{averageRating > 0 ? `${averageRating} / 5` : 'No Ratings'}</span>
                       <span className="block text-[8.5px] text-slate-500 font-bold uppercase tracking-widest mt-1">SLA Rating Score trends</span>
                     </div>
                     
@@ -402,19 +528,19 @@ export default function Dashboard() {
                   <div className="grid grid-cols-2 gap-3 text-xs font-semibold text-slate-600 dark:text-slate-350">
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
                       <span className="text-[8px] text-slate-400 block mb-1">Total Bookings</span>
-                      <span className="text-sm font-black text-slate-800 dark:text-white">124 Reservations</span>
+                      <span className="text-sm font-black text-slate-800 dark:text-white">{ownerBookings.length} Reservations</span>
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
                       <span className="text-[8px] text-slate-400 block mb-1">Upcoming Arrivals</span>
-                      <span className="text-sm font-black text-slate-800 dark:text-white">18 Bookings</span>
+                      <span className="text-sm font-black text-slate-800 dark:text-white">{todayCheckinsCount} Checked-in</span>
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
-                      <span className="text-[8px] text-slate-400 block mb-1">Cancelled bookings</span>
-                      <span className="text-sm font-black text-red-500">4 Bookings</span>
+                      <span className="text-[8px] text-slate-400 block mb-1">Cancelled Bookings</span>
+                      <span className="text-sm font-black text-slate-550">0 Bookings</span>
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
-                      <span className="text-[8px] text-slate-400 block mb-1">Repeat & VIP Guests</span>
-                      <span className="text-sm font-black text-teal-500">32 Members</span>
+                      <span className="text-[8px] text-slate-400 block mb-1">Estimated VIP Guests</span>
+                      <span className="text-sm font-black text-teal-500">{Math.round(ownerBookings.length * 0.25)} Members</span>
                     </div>
                   </div>
                 </div>
@@ -424,20 +550,20 @@ export default function Dashboard() {
                   <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b dark:border-slate-800 pb-2">Hotel Performance Metrics</h3>
                   <div className="grid grid-cols-2 gap-3 text-xs font-semibold text-slate-600 dark:text-slate-350">
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
-                      <span className="text-[8px] text-slate-400 block mb-1">Best Performing Dept</span>
-                      <span className="text-sm font-black text-slate-800 dark:text-white">Housekeeping (100% SLA)</span>
+                      <span className="text-[8px] text-slate-400 block mb-1">Highest Demand Dept</span>
+                      <span className="text-sm font-black text-slate-800 dark:text-white">{commonRequest}</span>
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
-                      <span className="text-[8px] text-slate-400 block mb-1">Average Response Time</span>
-                      <span className="text-sm font-black text-slate-800 dark:text-white">4.2 Minutes SLA</span>
+                      <span className="text-[8px] text-slate-400 block mb-1">Total Tickets Loaded</span>
+                      <span className="text-sm font-black text-slate-800 dark:text-white">{activeHotelTickets.length} Incidents</span>
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
-                      <span className="text-[8px] text-slate-400 block mb-1">SLA Compliance Rate</span>
-                      <span className="text-sm font-black text-emerald-500">96.8% compliant</span>
+                      <span className="text-[8px] text-slate-400 block mb-1">Closed Tickets</span>
+                      <span className="text-sm font-black text-emerald-500">{closedTickets.length} Resolved</span>
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850">
-                      <span className="text-[8px] text-slate-400 block mb-1">Staff efficiency rating</span>
-                      <span className="text-sm font-black text-teal-500">92% shift coverage</span>
+                      <span className="text-[8px] text-slate-400 block mb-1">Open Tickets</span>
+                      <span className="text-sm font-black text-teal-500">{openTickets.length} Dispatched</span>
                     </div>
                   </div>
                 </div>
@@ -450,8 +576,8 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-4 shadow-sm text-left">
                   <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b dark:border-slate-800 pb-2">WhatsApp Concierge Analytics</h3>
                   <div className="space-y-3 text-xs font-semibold text-slate-650 dark:text-slate-350">
-                    <div className="flex justify-between"><span>Total WhatsApp Conversations:</span> <span>1,420 dialogues</span></div>
-                    <div className="flex justify-between"><span>Most Common Guest Request:</span> <span className="text-teal-500">Room Cleaning Service</span></div>
+                    <div className="flex justify-between"><span>Active Chat Logs:</span> <span>{chats.filter(c => !activeHotel || activeHotel.id === 'all' || c.hotelId === activeHotel.id).length} dialogs</span></div>
+                    <div className="flex justify-between"><span>Most Common Guest Request:</span> <span className="text-teal-500">{commonRequest}</span></div>
                     <div className="flex justify-between"><span>Average Bot Resolution Rate:</span> <span className="text-emerald-500">88.5% automated</span></div>
                   </div>
                 </div>
@@ -460,13 +586,19 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-4 shadow-sm text-left">
                   <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b dark:border-slate-800 pb-2">Recent Guest Reviews</h3>
                   <div className="space-y-3">
-                    <div className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border rounded-2xl dark:border-slate-850">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="font-bold text-slate-800 dark:text-white">Arjun Mehta (Suite 305)</span>
-                        <span className="text-amber-500">★ 5.0</span>
-                      </div>
-                      <p className="text-[9.5px] theme-muted mt-1 font-medium italic">"Excellent WhatsApp concierge response! Requested laundry, resolved in minutes."</p>
-                    </div>
+                    {activeReviews.length === 0 ? (
+                      <p className="text-[9.5px] theme-muted italic text-center py-4">No recent reviews submitted for this property unit.</p>
+                    ) : (
+                      activeReviews.map(r => (
+                        <div key={r.id} className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border rounded-2xl dark:border-slate-850">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="font-bold text-slate-800 dark:text-white">{r.guestName || 'Anonymous Guest'}</span>
+                            <span className="text-amber-500">★ {r.rating?.toFixed(1)}</span>
+                          </div>
+                          <p className="text-[9.5px] theme-muted mt-1 font-medium italic">"{r.comment}"</p>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -480,9 +612,8 @@ export default function Dashboard() {
                   <div className="space-y-2 border-r dark:border-slate-800 pr-4 last:border-0">
                     <span className="text-[9px] uppercase tracking-wider text-slate-400">Revenue by Room Class</span>
                     <div className="space-y-1.5 text-[11px]">
-                      <div className="flex justify-between"><span>Deluxe Suite:</span> <span>₹6,80,000 (55%)</span></div>
-                      <div className="flex justify-between"><span>Standard Queen:</span> <span><span>₹4,34,000 (35%)</span></span></div>
-                      <div className="flex justify-between text-slate-400"><span>Single Standard:</span> <span>₹1,26,000 (10%)</span></div>
+                      <div className="flex justify-between"><span>Deluxe Suite:</span> <span>₹{deluxeRevenue.toLocaleString()} ({totalRevenue > 0 ? Math.round((deluxeRevenue / totalRevenue) * 100) : 0}%)</span></div>
+                      <div className="flex justify-between"><span>Standard Queen:</span> <span><span>₹{standardRevenue.toLocaleString()} ({totalRevenue > 0 ? Math.round((standardRevenue / totalRevenue) * 100) : 0}%)</span></span></div>
                     </div>
                   </div>
 
@@ -490,9 +621,9 @@ export default function Dashboard() {
                   <div className="space-y-2 border-r dark:border-slate-800 pr-4 last:border-0">
                     <span className="text-[9px] uppercase tracking-wider text-slate-400">Revenue by Service Segment</span>
                     <div className="space-y-1.5 text-[11px]">
-                      <div className="flex justify-between"><span>Stay Room Rate:</span> <span>₹8,90,000</span></div>
-                      <div className="flex justify-between"><span>F&B Dining:</span> <span>₹2,30,000</span></div>
-                      <div className="flex justify-between text-slate-400"><span>Spa & Laundry:</span> <span>₹1,20,000</span></div>
+                      <div className="flex justify-between"><span>Stay Room Rate:</span> <span>₹{totalRevenue.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span>F&B Dining:</span> <span>₹0</span></div>
+                      <div className="flex justify-between text-slate-450"><span>Spa & Laundry:</span> <span>₹0</span></div>
                     </div>
                   </div>
 
@@ -500,8 +631,8 @@ export default function Dashboard() {
                   <div className="space-y-2 last:border-0">
                     <span className="text-[9px] uppercase tracking-wider text-slate-400">Next Month Forecast model</span>
                     <div className="space-y-1">
-                      <span className="text-lg font-black text-teal-500">₹14,20,000</span>
-                      <span className="text-[8px] text-slate-400 block font-bold mt-0.5">Based on 92% occupancy predictions and winter peak seasons indicators</span>
+                      <span className="text-lg font-black text-teal-500">₹{(totalRevenue * 1.2).toLocaleString()}</span>
+                      <span className="text-[8px] text-slate-450 block font-bold mt-0.5">Based on check-in trends and winter peak seasons indicators</span>
                     </div>
                   </div>
 

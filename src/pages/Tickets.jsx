@@ -1,7 +1,8 @@
 import React, { useContext, useState } from 'react';
 import { TicketContext } from '../contexts/TicketContext';
 import { HotelContext } from '../contexts/HotelContext';
-import { MOCK_STAFF } from '../utils/mockData';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import { Ticket, Search, Clock, Plus, ShieldCheck, X, AlertTriangle } from 'lucide-react';
 
 export default function Tickets({ dept }) {
@@ -34,7 +35,26 @@ export default function Tickets({ dept }) {
   const [department, setDepartment] = useState('Housekeeping');
   const [priority, setPriority] = useState('High');
 
-  const hotelStaff = MOCK_STAFF.filter((s) => s.hotelId === activeHotel?.id);
+  const [hotelStaff, setHotelStaff] = useState([]);
+
+  React.useEffect(() => {
+    if (!activeHotel) return;
+
+    let q = collection(db, 'staff');
+    if (activeHotel.id !== 'all') {
+      q = query(collection(db, 'staff'), where('hotelId', '==', activeHotel.id));
+    }
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const roster = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setHotelStaff(roster);
+    });
+
+    return () => unsubscribe();
+  }, [activeHotel]);
 
   const handleSubmit = (e) => {
     e.preventDefault();

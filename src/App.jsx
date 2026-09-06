@@ -17,7 +17,7 @@ import LandingPage from './pages/LandingPage';
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
-import GuestAuthPage from './pages/auth/GuestAuthPage';
+import RegisterPage from './pages/auth/RegisterPage';
 
 // Operation Pages
 import Dashboard from './pages/Dashboard';
@@ -44,7 +44,15 @@ export default function App() {
               <Routes>
                 {/* Public Landing Page */}
                 <Route path="/" element={<LandingPage />} />
-                <Route path="/guest-auth" element={<GuestAuthPage />} />
+                <Route path="/guest-auth" element={<Navigate to="/register?type=guest" replace />} />
+                <Route
+                  path="/register"
+                  element={
+                    <SessionLayout>
+                      <RegisterPage />
+                    </SessionLayout>
+                  }
+                />
 
                 {/* Public Auth Routes wrapped in SessionLayout */}
                 <Route
@@ -88,7 +96,7 @@ export default function App() {
                 <Route
                   path="/hotels"
                   element={
-                    <ProtectedRoute allowedRoles={['Super Admin', 'Hotel Owner', 'Manager']}>
+                    <ProtectedRoute allowedRoles={['Super Admin', 'Hotel Owner']}>
                       <MainLayout>
                         <Hotels />
                       </MainLayout>
@@ -129,7 +137,7 @@ export default function App() {
                 <Route
                   path="/staff"
                   element={
-                    <ProtectedRoute allowedRoles={['Super Admin', 'Hotel Owner', 'Manager']}>
+                    <ProtectedRoute allowedRoles={['Super Admin', 'Hotel Owner', 'Manager', 'Front Desk']}>
                       <MainLayout>
                         <Staff />
                       </MainLayout>

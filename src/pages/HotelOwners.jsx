@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
-import { Users2, Search, Mail, Phone, Plus, X } from 'lucide-react';
+import React, { useState, useEffect, useContext } from 'react';
+import { Users2, Search, Mail, Phone, Plus, X, Trash2 } from 'lucide-react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../utils/firebase';
+import { AuthContext } from '../contexts/AuthContext';
+import api from '../utils/api';
 
 export default function HotelOwners() {
-  const [owners, setOwners] = useState([
-    { id: 'own-1', name: 'Suresh Mehta', email: 'owner1@atithisphere.com', phone: '+91 98210 12345', properties: 2, plan: 'Enterprise Pro', billing: 'Annually' },
-    { id: 'own-2', name: 'Rajesh Singhania', email: 'rajesh@singhaniahotels.in', phone: '+91 99334 88762', properties: 1, plan: 'Pro Premium', billing: 'Monthly' },
-    { id: 'own-3', name: 'Priya Sharma', email: 'priya.sharma@atithisphere.com', phone: '+91 90054 22199', properties: 1, plan: 'Standard Tier', billing: 'Annually' }
-  ]);
+  const [owners, setOwners] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { registerUser } = useContext(AuthContext);
 
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -15,23 +17,64 @@ export default function HotelOwners() {
   const [phone, setPhone] = useState('');
   const [plan, setPlan] = useState('Pro Premium');
 
-  const handleAddOwner = (e) => {
+  // Listen to Hotel Owners in Firestore real-time
+  useEffect(() => {
+    const q = query(collection(db, 'users'), where('role', '==', 'Hotel Owner'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || 'Owner User',
+          email: data.email,
+          phone: data.phone || '',
+          properties: data.properties || 0,
+          plan: data.plan || 'Pro Premium',
+          billing: 'Monthly'
+        };
+      });
+      setOwners(list);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddOwner = async (e) => {
     e.preventDefault();
     if (!name || !email || !phone) return;
-    const newOwner = {
-      id: `own-${Math.floor(Math.random() * 900) + 100}`,
+    
+    const response = await registerUser({
+      email: email.toLowerCase(),
+      password: 'password123', // default onboarding password
       name,
-      email,
       phone,
-      properties: 0,
-      plan,
-      billing: 'Monthly'
-    };
-    setOwners([newOwner, ...owners]);
-    setModalOpen(false);
-    setName('');
-    setEmail('');
-    setPhone('');
+      role: 'Hotel Owner',
+      hotelId: 'all', // Owner owns all/multiple properties
+      employeeId: `OWN-${Math.floor(Math.random() * 9000) + 1000}`,
+      plan
+    });
+
+    if (response.success) {
+      alert('Hotel Owner registered successfully!');
+      setModalOpen(false);
+      setName('');
+      setEmail('');
+      setPhone('');
+    } else {
+      alert('Failed to register Hotel Owner: ' + response.message);
+    }
+  };
+
+  const handleRemoveOwner = async (ownerEmail) => {
+    if (window.confirm('Are you sure you want to remove this hotel owner? Their user account will be permanently deleted.')) {
+      try {
+        await api.delete(`/api/staff/owner?email=${ownerEmail.toLowerCase()}`);
+        alert('Hotel Owner removed successfully.');
+      } catch (err) {
+        console.error('Failed to remove hotel owner:', err);
+        alert('Failed to remove hotel owner: ' + (err.response?.data?.error || err.message));
+      }
+    }
   };
 
   const filteredOwners = owners.filter(o => 
@@ -64,7 +107,7 @@ export default function HotelOwners() {
           </div>
           <button
             onClick={() => setModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl transition shadow-lg shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-550 text-white font-bold text-xs rounded-xl transition shadow-lg shrink-0"
           >
             <Plus size={14} /> Register Owner
           </button>
@@ -74,42 +117,56 @@ export default function HotelOwners() {
       {/* Owners Table */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm text-xs font-bold text-slate-650 dark:text-slate-350">
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-semibold">
-                <th className="p-4">Owner Name</th>
-                <th className="p-4">Contact Info</th>
-                <th className="p-4">Owned Properties</th>
-                <th className="p-4">Subscription Plan</th>
-                <th className="p-4">Billing Cycle</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredOwners.map((o) => (
-                <tr key={o.id} className="border-b border-slate-100 dark:border-slate-850 hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition">
-                  <td className="p-4">
-                    <span className="font-extrabold text-slate-800 dark:text-slate-100 block">{o.name}</span>
-                    <span className="text-[10px] theme-muted font-mono">{o.id}</span>
-                  </td>
-                  <td className="p-4 space-y-1">
-                    <div className="flex items-center gap-1.5"><Mail size={12} className="text-slate-400" /> {o.email}</div>
-                    <div className="flex items-center gap-1.5"><Phone size={12} className="text-slate-400" /> {o.phone}</div>
-                  </td>
-                  <td className="p-4 text-center sm:text-left">
-                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-500 font-bold font-mono">
-                      {o.properties} Branches
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <span className="text-[10.5px] font-extrabold">{o.plan}</span>
-                  </td>
-                  <td className="p-4">
-                    <span className="text-[10px] uppercase font-mono tracking-wider">{o.billing}</span>
-                  </td>
+          {loading ? (
+            <div className="p-8 text-center text-slate-550">Loading Owners list...</div>
+          ) : (
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-955/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-semibold">
+                  <th className="p-4">Owner Name</th>
+                  <th className="p-4">Contact Info</th>
+                  <th className="p-4">Subscription Plan</th>
+                  <th className="p-4">Billing Cycle</th>
+                  <th className="p-4 text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredOwners.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-slate-550">No registered hotel owners found.</td>
+                  </tr>
+                ) : (
+                  filteredOwners.map((o) => (
+                    <tr key={o.id} className="border-b border-slate-100 dark:border-slate-850 hover:bg-slate-50/50 dark:hover:bg-slate-955/20 transition">
+                      <td className="p-4">
+                        <span className="font-extrabold text-slate-800 dark:text-slate-100 block">{o.name}</span>
+                        <span className="text-[10px] theme-muted font-mono">{o.id}</span>
+                      </td>
+                      <td className="p-4 space-y-1">
+                        <div className="flex items-center gap-1.5"><Mail size={12} className="text-slate-400" /> {o.email}</div>
+                        <div className="flex items-center gap-1.5"><Phone size={12} className="text-slate-400" /> {o.phone}</div>
+                      </td>
+                      <td className="p-4">
+                        <span className="text-[10.5px] font-extrabold">{o.plan}</span>
+                      </td>
+                      <td className="p-4">
+                        <span className="text-[10px] uppercase font-mono tracking-wider">{o.billing}</span>
+                      </td>
+                      <td className="p-4 text-right">
+                        <button
+                          onClick={() => handleRemoveOwner(o.email)}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition"
+                          title="Remove Owner"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
@@ -142,11 +199,11 @@ export default function HotelOwners() {
                 <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} required className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl outline-none" placeholder="+91 98000 11223" />
               </div>
               <div>
-                <label className="block text-[10px] text-slate-500 uppercase mb-1">Subscription plan level</label>
+                <label className="block text-[10px] text-slate-500 uppercase mb-1">Subscription Plan Level</label>
                 <select value={plan} onChange={(e) => setPlan(e.target.value)} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl">
-                  <option>Standard Tier</option>
-                  <option>Pro Premium</option>
-                  <option>Enterprise Pro</option>
+                  <option value="Standard Tier">Standard Tier</option>
+                  <option value="Pro Premium">Pro Premium</option>
+                  <option value="Enterprise Pro">Enterprise Pro</option>
                 </select>
               </div>
 
@@ -157,7 +214,6 @@ export default function HotelOwners() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

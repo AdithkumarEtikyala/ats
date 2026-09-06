@@ -1,8 +1,10 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { HotelContext } from '../contexts/HotelContext';
 import { AuthContext } from '../contexts/AuthContext';
-import { MOCK_STAFF } from '../utils/mockData';
-import { Users2, Search, Star, ShieldAlert, Plus, X, UserPlus, Check } from 'lucide-react';
+import { collection, onSnapshot, query, where, deleteDoc, doc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
+import { Users2, Search, Star, ShieldAlert, Plus, X, UserPlus, Check, Trash2 } from 'lucide-react';
+import api from '../utils/api';
 
 export default function Staff() {
   const { activeHotel, hotels } = useContext(HotelContext);
@@ -16,21 +18,28 @@ export default function Staff() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [employeeId, setEmployeeId] = useState('');
-  const [role, setRole] = useState('Front Desk');
+  const [role, setRole] = useState('Housekeeping');
   const [hotelAssignment, setHotelAssignment] = useState(activeHotel?.id || 'hotel-1');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('password123');
   const [regSuccess, setRegSuccess] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('atithisphere_v3_staff');
-    if (saved) {
-      setStaffList(JSON.parse(saved));
-    } else {
-      localStorage.setItem('atithisphere_v3_staff', JSON.stringify(MOCK_STAFF));
-      setStaffList(MOCK_STAFF);
+    let q = collection(db, 'staff');
+    if (activeHotel && activeHotel.id !== 'all') {
+      q = query(collection(db, 'staff'), where('hotelId', '==', activeHotel.id));
     }
-  }, []);
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const roster = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setStaffList(roster);
+    });
+
+    return () => unsubscribe();
+  }, [activeHotel]);
 
   // Update staff assignment selector when activeHotel changes
   useEffect(() => {
@@ -47,9 +56,9 @@ export default function Staff() {
     }
   }, [window.location.search]);
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
-    const assignedId = user.role === 'Super Admin' ? hotelAssignment : user.hotelId;
+    const assignedId = (user.role === 'Super Admin' || user.role === 'Hotel Owner' || user.role === 'Manager') ? (activeHotel?.id || hotelAssignment) : user.hotelId;
 
     const newUser = {
       name,
@@ -62,11 +71,7 @@ export default function Staff() {
       hotelId: assignedId
     };
 
-    registerUser(newUser);
-
-    // Reload the staff list local state
-    const saved = JSON.parse(localStorage.getItem('atithisphere_v3_staff') || '[]');
-    setStaffList(saved);
+    await registerUser(newUser);
 
     // Reset Form
     setName('');
@@ -82,7 +87,19 @@ export default function Staff() {
     }, 1500);
   };
 
-  const isAllowedToRegister = user?.role === 'Super Admin' || user?.role === 'Manager';
+  const handleRemoveStaff = async (staffId, staffEmail) => {
+    if (window.confirm('Are you sure you want to remove this staff member?')) {
+      try {
+        await api.delete(`/api/staff/${staffId}?email=${staffEmail || ''}`);
+        alert('Staff member removed successfully.');
+      } catch (err) {
+        console.error('Failed to remove staff via backend:', err);
+        alert('Failed to remove staff member: ' + (err.response?.data?.error || err.message));
+      }
+    }
+  };
+
+  const isAllowedToRegister = user?.role === 'Super Admin' || user?.role === 'Hotel Owner' || user?.role === 'Manager' || user?.role === 'Front Desk';
 
   // Filter roster by current active hotel selection
   const filteredStaff = staffList
@@ -130,16 +147,27 @@ export default function Staff() {
               key={s.id}
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col justify-between shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition"
             >
-              <div className="flex items-center gap-3.5 pb-4 border-b border-slate-100 dark:border-slate-850">
-                <div className="h-10 w-10 bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-extrabold rounded-xl text-sm">
-                  {s.name.charAt(0)}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-850">
+                <div className="flex items-center gap-3.5">
+                  <div className="h-10 w-10 bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-extrabold rounded-xl text-sm">
+                    {s.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">{s.name}</h4>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-450 uppercase tracking-wider font-semibold block mt-0.5">
+                      {s.role}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">{s.name}</h4>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-450 uppercase tracking-wider font-semibold block mt-0.5">
-                    {s.role}
-                  </span>
-                </div>
+                {(user?.role === 'Super Admin' || user?.role === 'Hotel Owner' || user?.role === 'Manager' || user?.role === 'Front Desk') && (
+                  <button
+                    onClick={() => handleRemoveStaff(s.id, s.email)}
+                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-550/10 rounded-lg transition"
+                    title="Remove Staff"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
 
               <div className="pt-4 grid grid-cols-2 gap-4 text-xs font-semibold text-slate-550 dark:text-slate-400">
@@ -251,8 +279,12 @@ export default function Staff() {
                       onChange={(e) => setRole(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none"
                     >
-                      {user?.role === 'Super Admin' && <option value="Manager">Hotel Manager</option>}
-                      <option value="Front Desk">Front Desk Staff</option>
+                      {user?.role === 'Super Admin' && (
+                        <>
+                          <option value="Manager">Hotel Manager</option>
+                          <option value="Front Desk">Front Desk Staff</option>
+                        </>
+                      )}
                       <option value="Housekeeping">Housekeeping Staff</option>
                       <option value="Maintenance">Maintenance Staff</option>
                       <option value="Food & Beverage">Food & Beverage Staff</option>

@@ -24,12 +24,14 @@ import {
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ClipboardList,
   Wrench,
   Utensils,
   Brush,
   Zap,
-  User
+  User,
+  UserCheck
 } from 'lucide-react';
 
 export default function MainLayout({ children }) {
@@ -39,6 +41,7 @@ export default function MainLayout({ children }) {
   
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [hotelsTreeExpanded, setHotelsTreeExpanded] = useState(true);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,7 +66,7 @@ export default function MainLayout({ children }) {
       return ['Dashboard', 'Bookings', 'Guest Requests', 'Housekeeping', 'Maintenance', 'Food & Beverage', 'Staff Management', 'Feedback Management', 'Settings'].includes(name);
     }
     if (role === 'Front Desk') {
-      return ['Dashboard', 'Bookings', 'Guest Requests', 'Housekeeping', 'Maintenance', 'Food & Beverage', 'Feedback Management', 'Settings'].includes(name);
+      return ['Dashboard', 'Bookings', 'Guest Requests', 'Housekeeping', 'Maintenance', 'Food & Beverage', 'Staff Management', 'Feedback Management', 'Settings'].includes(name);
     }
     if (role === 'Housekeeping') {
       return ['Dashboard', 'Housekeeping', 'Settings'].includes(name);
@@ -80,12 +83,21 @@ export default function MainLayout({ children }) {
 
   // Menu Navigation Items for Platform vs Hotel Workspace sidebars
   const navItems = useMemo(() => {
-    // MAIN PLATFORM SIDEBAR
+    // MAIN PLATFORM SIDEBAR WITH HIERARCHY TREE
     return [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, visible: isItemVisibleForRole('Dashboard', role) },
-      { name: role === 'Hotel Owner' ? 'My Branches' : 'Hotels', path: '/hotels', icon: Building2, visible: isItemVisibleForRole('Hotels', role) },
-      { name: 'Hotel Owners', path: '/hotel-owners', icon: Users2, visible: role === 'Super Admin' },
-      { name: 'Staff Management', path: '/staff', icon: Users2, visible: isItemVisibleForRole('Staff Management', role) },
+      { 
+        name: role === 'Hotel Owner' ? 'My Branches' : 'Hotels', 
+        path: '/hotels', 
+        icon: Building2, 
+        visible: isItemVisibleForRole('Hotels', role),
+        children: [
+          { name: 'Owner', path: '/hotel-owners', icon: UserCheck, visible: role === 'Super Admin' },
+          { name: 'Staff', path: '/staff', icon: Users2, visible: isItemVisibleForRole('Staff Management', role) },
+          { name: 'Customers', path: '/bookings?tab=guests', icon: User, visible: true },
+          { name: 'Hotel Operations', path: '/hotels', icon: Settings, visible: true }
+        ]
+      },
       { name: 'Reports & Analytics', path: '/reports', icon: BarChart3, visible: isItemVisibleForRole('Reports & Analytics', role) },
       { name: 'Feedback Management', path: '/feedback', icon: MessageSquare, visible: isItemVisibleForRole('Feedback Management', role) },
       { name: 'Settings', path: '/settings', icon: Settings, visible: isItemVisibleForRole('Settings', role) }
@@ -245,7 +257,6 @@ export default function MainLayout({ children }) {
               .filter((item) => item.visible !== false)
               .map((item, idx) => {
                 const Icon = item.icon;
-                // Highlight matches
                 const itemPathBase = item.path.split('?')[0];
                 const itemQuery = item.path.split('?')[1] || '';
                 const isPathMatch = location.pathname === itemPathBase;
@@ -255,20 +266,59 @@ export default function MainLayout({ children }) {
                   : (!location.search.includes('dept=') && !location.search.includes('filter=') && !location.search.includes('tab='));
                   
                 const isActive = isPathMatch && isQueryMatch;
+                const hasChildren = item.children && item.children.length > 0;
 
                 return (
-                  <Link
-                    key={idx}
-                    to={item.path}
-                    className={`flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition ${
-                      isActive
-                        ? 'bg-teal-600 text-white shadow-lg shadow-teal-900/15'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-950/40'
-                    }`}
-                  >
-                    <Icon size={16} className="shrink-0" />
-                    {!sidebarCollapsed && <span>{item.name}</span>}
-                  </Link>
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <Link
+                        to={item.path}
+                        className={`flex-1 flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
+                          isActive
+                            ? 'bg-teal-600 text-white shadow-lg shadow-teal-900/15'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-950/40'
+                        }`}
+                      >
+                        <Icon size={16} className="shrink-0" />
+                        {!sidebarCollapsed && <span>{item.name}</span>}
+                      </Link>
+                      {!sidebarCollapsed && hasChildren && (
+                        <button
+                          type="button"
+                          onClick={() => setHotelsTreeExpanded(!hotelsTreeExpanded)}
+                          className="p-1.5 text-slate-400 hover:text-teal-500 rounded-lg"
+                        >
+                          <ChevronDown size={14} className={`transition-transform ${hotelsTreeExpanded ? '' : '-rotate-90'}`} />
+                        </button>
+                      )}
+                    </div>
+
+                    {!sidebarCollapsed && hasChildren && hotelsTreeExpanded && (
+                      <div className="pl-4 ml-4 border-l border-slate-200 dark:border-slate-800 space-y-1 py-1">
+                        {item.children
+                          .filter(child => child.visible !== false)
+                          .map((child, cIdx) => {
+                            const ChildIcon = child.icon;
+                            const isChildActive = (location.pathname + location.search) === child.path;
+                            return (
+                              <Link
+                                key={cIdx}
+                                to={child.path}
+                                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                                  isChildActive
+                                    ? 'text-teal-500 font-extrabold bg-teal-500/10'
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-950/40'
+                                }`}
+                              >
+                                <span className="text-slate-300 dark:text-slate-700 font-mono text-[10px]">└─</span>
+                                <ChildIcon size={13} className="shrink-0 text-teal-500/80" />
+                                <span className="truncate">{child.name}</span>
+                              </Link>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
           </div>
@@ -310,20 +360,51 @@ export default function MainLayout({ children }) {
                   .map((item, idx) => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path.split('?')[0];
+                    const hasChildren = item.children && item.children.length > 0;
                     return (
-                      <Link
-                        key={idx}
-                        to={item.path}
-                        onClick={() => setMobileMenuOpen(false)}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${
-                          isActive
-                            ? 'bg-teal-600 text-white'
-                            : 'text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-950'
-                        }`}
-                      >
-                        <Icon size={16} />
-                        {item.name}
-                      </Link>
+                      <div key={idx} className="space-y-1">
+                        <Link
+                          to={item.path}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={`flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition ${
+                            isActive
+                              ? 'bg-teal-600 text-white'
+                              : 'text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-950'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Icon size={16} />
+                            <span>{item.name}</span>
+                          </div>
+                        </Link>
+
+                        {hasChildren && (
+                          <div className="pl-4 ml-4 border-l border-slate-200 dark:border-slate-800 space-y-1 py-1">
+                            {item.children
+                              .filter(child => child.visible !== false)
+                              .map((child, cIdx) => {
+                                const ChildIcon = child.icon;
+                                const isChildActive = (location.pathname + location.search) === child.path;
+                                return (
+                                  <Link
+                                    key={cIdx}
+                                    to={child.path}
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                      isChildActive
+                                        ? 'text-teal-500 font-extrabold bg-teal-500/10'
+                                        : 'text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-white'
+                                    }`}
+                                  >
+                                    <span className="text-slate-300 dark:text-slate-700 font-mono text-[10px]">└─</span>
+                                    <ChildIcon size={13} className="shrink-0 text-teal-500" />
+                                    <span>{child.name}</span>
+                                  </Link>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
               </div>

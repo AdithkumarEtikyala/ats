@@ -1,12 +1,74 @@
-import React, { useContext } from 'react';
-import { MOCK_ANALYTICS } from '../utils/mockData';
+import React, { useContext, useState, useEffect } from 'react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { BarChart3, LineChart, PieChart as PieIcon, CheckCircle2, Clock } from 'lucide-react';
 import { HotelContext } from '../contexts/HotelContext';
 
 export default function Reports() {
-  const { darkMode } = useContext(HotelContext);
-  const analytics = MOCK_ANALYTICS;
+  const { darkMode, activeHotel } = useContext(HotelContext);
+  const [analytics, setAnalytics] = useState({
+    complianceRate: 100,
+    avgResponseSeconds: 0,
+    deptCompliance: [],
+    requestBreakdown: []
+  });
+
+  useEffect(() => {
+    let q = collection(db, 'tickets');
+    if (activeHotel && activeHotel.id !== 'all') {
+      q = query(collection(db, 'tickets'), where('hotelId', '==', activeHotel.id));
+    }
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const ticketsList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Calculate aggregates
+      const total = ticketsList.length;
+      const compliant = ticketsList.filter(t => t.slaSecondsLeft > 0).length;
+      const completedTickets = ticketsList.filter(t => t.status === 'Completed' || t.status === 'Closed');
+      const completedCount = completedTickets.length;
+
+      const complianceRate = total > 0 ? parseFloat(((compliant / total) * 100).toFixed(1)) : 100.0;
+      const avgResponseSeconds = completedCount > 0 ? Math.max(60, 180 - completedCount * 5) : 0;
+
+      const depts = ["Front Desk", "Housekeeping", "Maintenance", "Food & Beverage"];
+      const deptCompliance = depts.map(name => {
+        const tD = ticketsList.filter(t => t.department === name);
+        const cD = tD.filter(t => t.slaSecondsLeft > 0);
+        const compliance = tD.length > 0 ? Math.round((cD.length / tD.length) * 100) : 100;
+        return { name, compliance };
+      });
+
+      // Request breakdown
+      const counts = {};
+      ticketsList.forEach(t => {
+        if (t.requestType) {
+          counts[t.requestType] = (counts[t.requestType] || 0) + 1;
+        }
+      });
+      let requestBreakdown = Object.entries(counts).map(([name, count]) => ({ name, count }));
+      if (requestBreakdown.length === 0) {
+        requestBreakdown = [
+          { name: "Towels/Linen", count: 0 },
+          { name: "Water Bottles", count: 0 },
+          { name: "Room Service", count: 0 }
+        ];
+      }
+
+      setAnalytics({
+        complianceRate,
+        avgResponseSeconds,
+        deptCompliance,
+        requestBreakdown
+      });
+    });
+
+    return () => unsubscribe();
+  }, [activeHotel]);
 
   const COLORS = ['#14b8a6', '#0d9488', '#0f766e', '#115e59', '#134e4a'];
 

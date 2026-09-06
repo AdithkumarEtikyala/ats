@@ -1,153 +1,149 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { MOCK_HOTELS } from '../utils/mockData';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  createUserWithEmailAndPassword 
+} from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../utils/firebase';
+import api from '../utils/api';
 
 export const AuthContext = createContext();
 
-const DEFAULT_USERS = [
-  {
-    name: 'Super Admin',
-    email: 'superadmin@atithisphere.com',
-    password: 'password123',
-    role: 'Super Admin',
-    hotelId: 'all',
-    employeeId: 'EMP-SA01',
-    phone: '+91 99999 11111'
-  },
-  {
-    name: 'Suresh Mehta',
-    email: 'owner1@atithisphere.com',
-    password: 'password123',
-    role: 'Hotel Owner',
-    hotelId: 'hotel-1',
-    employeeId: 'EMP-OW01',
-    phone: '+91 99999 12345'
-  },
-  {
-    name: 'Rohan Gupta',
-    email: 'owner2@atithisphere.com',
-    password: 'password123',
-    role: 'Hotel Owner',
-    hotelId: 'hotel-2',
-    employeeId: 'EMP-OW02',
-    phone: '+91 99999 67890'
-  },
-  {
-    name: 'Arvind Sharma',
-    email: 'manager1@atithisphere.com',
-    password: 'password123',
-    role: 'Manager',
-    hotelId: 'hotel-1',
-    employeeId: 'EMP-M01',
-    phone: '+91 99999 22222'
-  },
-  {
-    name: 'Priya Nair',
-    email: 'frontdesk1@atithisphere.com',
-    password: 'password123',
-    role: 'Front Desk',
-    hotelId: 'hotel-1',
-    employeeId: 'EMP-FD01',
-    phone: '+91 99999 33333'
-  },
-  {
-    name: 'Karan Singh',
-    email: 'housekeeping1@atithisphere.com',
-    password: 'password123',
-    role: 'Housekeeping',
-    hotelId: 'hotel-1',
-    employeeId: 'EMP-HK01',
-    phone: '+91 99999 44444'
-  },
-  {
-    name: 'Ramesh Kumar',
-    email: 'maintenance1@atithisphere.com',
-    password: 'password123',
-    role: 'Maintenance',
-    hotelId: 'hotel-1',
-    employeeId: 'EMP-MN01',
-    phone: '+91 99999 55555'
-  },
-  {
-    name: 'Vikram Mehta',
-    email: 'foodbeverage1@atithisphere.com',
-    password: 'password123',
-    role: 'Food & Beverage',
-    hotelId: 'hotel-1',
-    employeeId: 'EMP-FB01',
-    phone: '+91 99999 66666'
-  }
-];
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyA123456789-DemoPlaceholderOnly",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "atithisphere-app.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "atithisphere-app",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "atithisphere-app.appspot.com",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789012",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:123456789012:web:1234567890abcdef123456"
+};
 
 export const AuthProvider = ({ children }) => {
-  const [users, setUsers] = useState(() => {
-    const saved = localStorage.getItem('atithisphere_v3_users');
-    let loadedUsers = saved ? JSON.parse(saved) : [];
-    
-    // Auto-merge default accounts to prevent cache stagnation
-    const merged = [...loadedUsers];
-    DEFAULT_USERS.forEach(def => {
-      const exists = merged.some(u => u.email.toLowerCase() === def.email.toLowerCase());
-      if (!exists) {
-        merged.push(def);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Auto-seed Admin Account
+  const seedSuperAdmin = async () => {
+    try {
+      const tempApp = initializeApp(firebaseConfig, 'TempSeedApp');
+      const tempAuth = getAuth(tempApp);
+      await createUserWithEmailAndPassword(tempAuth, 'superadmin@atithisphere.com', 'password123');
+      
+      // Store in users collection
+      await setDoc(doc(db, 'users', 'superadmin@atithisphere.com'), {
+        email: 'superadmin@atithisphere.com',
+        name: 'Super Admin',
+        role: 'Super Admin',
+        hotelId: 'all',
+        employeeId: 'EMP-SA01',
+        phone: '+91 99999 11111'
+      });
+      await tempAuth.signOut();
+      console.log('Super Admin seeded successfully in Firebase.');
+    } catch (err) {
+      console.debug('Super admin seed status:', err?.message);
+    }
+  };
+
+  useEffect(() => {
+    seedSuperAdmin();
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.email.toLowerCase()));
+          if (userDoc.exists()) {
+            setUser(userDoc.data());
+          } else {
+            // Fallback user metadata
+            setUser({
+              email: firebaseUser.email,
+              name: firebaseUser.displayName || 'Guest User',
+              role: 'Guest',
+              hotelId: '',
+              employeeId: 'GUEST',
+              phone: firebaseUser.phoneNumber || ''
+            });
+          }
+        } catch (err) {
+          console.error('Failed to load user metadata from Firestore:', err);
+        }
+      } else {
+        setUser(null);
       }
+      setLoading(false);
     });
 
-    localStorage.setItem('atithisphere_v3_users', JSON.stringify(merged));
-    return merged;
-  });
+    return () => unsubscribe();
+  }, []);
 
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('atithisphere_v3_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  const login = (email, password, hotelId) => {
-    const foundUser = users.find(
-      u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    );
-
-    if (foundUser) {
-      const activeUser = {
-        ...foundUser,
-        // If login requested a specific hotel (for staff/managers)
-        hotelId: foundUser.role === 'Super Admin' ? (hotelId || 'all') : foundUser.hotelId
+  const login = async (email, password, hotelId) => {
+    try {
+      const userCred = await signInWithEmailAndPassword(auth, email, password);
+      const userDoc = await getDoc(doc(db, 'users', email.toLowerCase()));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const activeUser = {
+          ...userData,
+          hotelId: userData.role === 'Super Admin' ? (hotelId || 'all') : userData.hotelId
+        };
+        setUser(activeUser);
+        return { success: true, user: activeUser };
+      }
+      return { success: false, message: 'User record not found in Firestore.' };
+    } catch (err) {
+      return {
+        success: false,
+        message: err.code === 'auth/invalid-credential' 
+          ? 'Invalid email credentials or password key.' 
+          : err.message
       };
-      setUser(activeUser);
-      localStorage.setItem('atithisphere_v3_user', JSON.stringify(activeUser));
-      return { success: true };
     }
-    return { success: false, message: 'Invalid email credentials or password key.' };
   };
 
-  const registerUser = (newUser) => {
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    localStorage.setItem('atithisphere_v3_users', JSON.stringify(updatedUsers));
-
-    // Also update dynamic staff array in MOCK_STAFF or local storage so they show up
-    const savedStaff = JSON.parse(localStorage.getItem('atithisphere_v3_staff') || '[]');
-    const newStaffMember = {
-      id: `staff-${Math.floor(Math.random() * 900) + 100}`,
-      name: newUser.name,
-      role: newUser.role,
-      hotelId: newUser.hotelId,
-      activeTickets: 0,
-      rating: 4.8
-    };
-    const updatedStaff = [...savedStaff, newStaffMember];
-    localStorage.setItem('atithisphere_v3_staff', JSON.stringify(updatedStaff));
+  const registerUser = async (newUser) => {
+    try {
+      await api.post('/api/auth/register', newUser);
+      return { success: true };
+    } catch (err) {
+      console.error('Failed to register employee via backend:', err);
+      return { success: false, message: err.response?.data?.error || err.message };
+    }
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('atithisphere_v3_user');
+  const registerSelf = async (newUser) => {
+    try {
+      // 1. Register account via backend API
+      await api.post('/api/auth/register', newUser);
+      
+      // 2. Sign in client-side to set session
+      await signInWithEmailAndPassword(auth, newUser.email, newUser.password || 'password123');
+      
+      return { success: true };
+    } catch (err) {
+      console.error('Failed self-registration:', err);
+      return { success: false, message: err.response?.data?.error || err.message };
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
   };
 
   const isLoggedIn = !!user;
 
   return (
-    <AuthContext.Provider value={{ user, users, isLoggedIn, login, logout, registerUser }}>
-      {children}
+    <AuthContext.Provider value={{ user, isLoggedIn, login, logout, registerUser, registerSelf, loading }}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

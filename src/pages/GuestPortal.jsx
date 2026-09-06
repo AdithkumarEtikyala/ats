@@ -1,5 +1,9 @@
-import React, { useState, useMemo, useContext } from 'react';
+import React, { useState, useMemo, useContext, useEffect } from 'react';
 import { FeedbackContext } from '../contexts/FeedbackContext';
+import { AuthContext } from '../contexts/AuthContext';
+import { TicketContext } from '../contexts/TicketContext';
+import { collection, onSnapshot, query, where, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import {
   Sparkles,
   Building,
@@ -52,6 +56,8 @@ import {
 
 export default function GuestPortal() {
   const { submitHotelReview, hotelFeedback, submitAppFeedback } = useContext(FeedbackContext);
+  const { user, logout } = useContext(AuthContext);
+  const { createTicket, sendChatMessage } = useContext(TicketContext);
 
   // Guest Settings States
   const [guestSettingsSearch, setGuestSettingsSearch] = useState('');
@@ -121,50 +127,106 @@ export default function GuestPortal() {
   const [waChatOpen, setWaChatOpen] = useState(false);
   const [chatText, setChatText] = useState('');
   const [chatMessages, setChatMessages] = useState([
-    { id: '1', sender: 'bot', text: 'Welcome Arjun! I am your AtithiSphere assistant. How can I help you with your booking or stay today?', time: '10:00 AM' }
+    { id: '1', sender: 'bot', text: 'Welcome! I am your AtithiSphere assistant. How can I help you with your booking or stay today?', time: '10:00 AM' }
   ]);
+
+  const [activeBooking, setActiveBooking] = useState(null);
+  const [stayHotel, setStayHotel] = useState(null);
+  const [liveTickets, setLiveTickets] = useState([]);
+
+  // 1. Fetch active booking for logged-in Guest
+  useEffect(() => {
+    if (!user || !user.phone) return;
+    const q = query(collection(db, 'bookings'), where('guestPhone', '==', user.phone));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          hotelName: data.hotelName || 'AtithiSphere Stay',
+          city: data.city || 'Mumbai',
+          room: data.roomNumber ? `${data.roomType || 'Suite'} ${data.roomNumber}` : 'Pending Assignment',
+          checkIn: data.checkIn || '2026-07-10',
+          checkOut: data.checkOut || '2026-07-14',
+          guests: data.guests || 2,
+          totalPrice: data.amount || 30000,
+          status: data.status === 'checked-in' ? 'Confirmed Stay' : data.status,
+          upcoming: data.status !== 'checkout' && data.status !== 'completed'
+        };
+      });
+      setMyBookingsList(list);
+
+      if (!snapshot.empty) {
+        setActiveBooking({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+      } else {
+        setActiveBooking(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // 2. Fetch stay hotel details
+  useEffect(() => {
+    if (!activeBooking || !activeBooking.hotelId) return;
+    const unsubscribe = onSnapshot(doc(db, 'hotels', activeBooking.hotelId), (docSnap) => {
+      if (docSnap.exists()) {
+        setStayHotel({ id: docSnap.id, ...docSnap.data() });
+      }
+    });
+    return () => unsubscribe();
+  }, [activeBooking]);
+
+  // 3. Fetch live chat messages matching guest phone
+  useEffect(() => {
+    if (!user || !user.phone) return;
+    const unsubscribe = onSnapshot(doc(db, 'chats', user.phone), (docSnap) => {
+      if (docSnap.exists()) {
+        setChatMessages(docSnap.data().messages || []);
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // 4. Fetch live tickets for this guest
+  useEffect(() => {
+    if (!user || !user.phone) return;
+    const q = query(collection(db, 'tickets'), where('guestPhone', '==', user.phone));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(d => {
+        const data = d.data();
+        let icon = Coffee;
+        if (data.department === 'Housekeeping') icon = Brush;
+        else if (data.department === 'Maintenance') icon = Wrench;
+        else if (data.department === 'Food & Beverage') icon = Utensils;
+        
+        return {
+          id: d.id,
+          type: data.requestType || 'Concierge Service',
+          dept: data.department || 'Front Desk',
+          time: 'Just now',
+          status: data.status || 'New',
+          icon: icon,
+          eta: data.status === 'Completed' ? 'Delivered' : '10 mins remaining'
+        };
+      });
+      setLiveTickets(list);
+      setMyRequests(list.filter(t => ['Housekeeping', 'Food & Beverage'].includes(t.dept)));
+      setSupportTickets(list.filter(t => ['Front Desk', 'Maintenance'].includes(t.dept)));
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   // Wishlist state
-  const [wishlist, setWishlist] = useState(['h-1']);
+  const [wishlist, setWishlist] = useState([]);
 
   // Guest bookings list
-  const [myBookingsList, setMyBookingsList] = useState([
-    {
-      id: 'BK-5011',
-      hotelName: 'Grand Palace Hotel & Spa',
-      city: 'Mumbai',
-      room: 'Deluxe Suite 305',
-      checkIn: '2026-07-10',
-      checkOut: '2026-07-14',
-      guests: 2,
-      totalPrice: 30000,
-      status: 'Confirmed Stay',
-      upcoming: true
-    },
-    {
-      id: 'BK-4920',
-      hotelName: 'Goa Coastal Palms Resort',
-      city: 'Goa',
-      room: 'Palms Cabana 104',
-      checkIn: '2026-05-12',
-      checkOut: '2026-05-15',
-      guests: 2,
-      totalPrice: 18600,
-      status: 'Completed',
-      upcoming: false
-    }
-  ]);
+  const [myBookingsList, setMyBookingsList] = useState([]);
 
   // Service requests
-  const [myRequests, setMyRequests] = useState([
-    { id: 'REQ-102', type: 'Extra Towels', dept: 'Housekeeping', time: '10 mins ago', status: 'In Progress', icon: Brush, eta: '4 mins remaining' },
-    { id: 'REQ-103', type: 'Mineral Water', dept: 'Food & Beverage', time: 'Just now', status: 'Pending Dispatch', icon: Utensils, eta: '12 mins remaining' }
-  ]);
+  const [myRequests, setMyRequests] = useState([]);
 
   // Help tickets
-  const [supportTickets, setSupportTickets] = useState([
-    { id: 'TKT-8801', type: 'Billing Enquiry', status: 'Closed', created: '2026-06-15', updated: '2026-06-16' }
-  ]);
+  const [supportTickets, setSupportTickets] = useState([]);
 
   // Problem reporting form
   const [problemCategory, setProblemCategory] = useState('Room Issue');
@@ -328,47 +390,49 @@ Please assist me.`;
     window.open(waUrl, '_blank');
   };
 
-  const handleSendWA = (e) => {
+  const handleSendWA = async (e) => {
     e.preventDefault();
-    if (!chatText.trim()) return;
-    const userMsg = { id: `msg-u-${Date.now()}`, sender: 'guest', text: chatText, time: 'Just now' };
-    setChatMessages(prev => [...prev, userMsg]);
+    if (!chatText.trim() || !user) return;
+    const text = chatText;
     setChatText('');
-    setTimeout(() => {
-      setChatMessages(prev => [
-        ...prev,
-        { id: `msg-b-${Date.now()}`, sender: 'bot', text: 'Service request updated. Feel free to check active status updates in Guest Services.', time: 'Just now' }
-      ]);
-    }, 1000);
+    await sendChatMessage(
+      user.phone, 
+      text, 
+      'guest', 
+      user.name, 
+      activeBooking?.hotelId || 'hotel-1'
+    );
   };
 
-  const handleQuickConcierge = (itemType, customIcon = Coffee) => {
-    const newReq = {
-      id: `REQ-${Math.floor(Math.random() * 900) + 100}`,
-      type: itemType,
-      dept: ['Fresh Linen', 'Room Cleaning'].includes(itemType) ? 'Housekeeping' : 'Room Service',
-      time: 'Just now',
-      status: 'Pending Dispatch',
-      icon: customIcon,
-      eta: '10 mins remaining'
-    };
-    setMyRequests([newReq, ...myRequests]);
+  const handleQuickConcierge = async (itemType, customIcon = Coffee) => {
+    if (!user) return;
+    const dept = ['Fresh Linen', 'Room Cleaning'].includes(itemType) ? 'Housekeeping' : 'Food & Beverage';
+    await createTicket({
+      hotelId: activeBooking?.hotelId || 'hotel-1',
+      guestName: user.name,
+      guestPhone: user.phone,
+      roomNumber: activeBooking?.roomNumber || '305',
+      requestType: itemType,
+      department: dept,
+      priority: 'Medium'
+    });
     setActiveTab('services');
     setBreadcrumbs(['Stay Hub', 'Guest Services']);
-    triggerWhatsAppDirect('Grand Palace Hotel & Spa', itemType);
+    triggerWhatsAppDirect(stayHotel?.name || 'Hotel Property', itemType);
   };
 
-  const handleReportProblem = (e) => {
+  const handleReportProblem = async (e) => {
     e.preventDefault();
-    if (!problemDescription.trim()) return;
-    const newTkt = {
-      id: `TKT-${Math.floor(Math.random() * 9000) + 1000}`,
-      type: problemCategory,
-      status: 'Open',
-      created: '2026-07-07',
-      updated: '2026-07-07'
-    };
-    setSupportTickets([newTkt, ...supportTickets]);
+    if (!problemDescription.trim() || !user) return;
+    await createTicket({
+      hotelId: activeBooking?.hotelId || 'hotel-1',
+      guestName: user.name,
+      guestPhone: user.phone,
+      roomNumber: activeBooking?.roomNumber || '305',
+      requestType: problemDescription,
+      department: problemCategory,
+      priority: 'High'
+    });
     setProblemDescription('');
     alert('Problem report logged to support roster.');
   };

@@ -5,6 +5,8 @@ import { Mail, Lock, Eye, EyeOff, ArrowLeft, ShieldAlert } from 'lucide-react';
 
 export default function LoginPage() {
   const { login } = useContext(AuthContext);
+
+  // Input states
   const [email, setEmail] = useState('superadmin@atithisphere.com');
   const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
@@ -13,12 +15,17 @@ export default function LoginPage() {
 
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
-    const res = login(email, password);
+    
+    const res = await login(email, password);
     if (res.success) {
-      navigate('/dashboard');
+      if (res.user.role === 'Guest') {
+        window.location.href = '/guest'; // Guest redirect
+      } else {
+        window.location.href = '/dashboard'; // Staff redirect
+      }
     } else {
       setErrorMsg(res.message || 'Invalid credentials.');
     }
@@ -26,17 +33,26 @@ export default function LoginPage() {
 
   return (
     <div className="space-y-4">
-      {/* Back to Home Button */}
+      {/* Back to Welcome Link */}
       <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-2">
         <Link 
           to="/" 
-          className="flex items-center gap-1.5 text-[10px] font-extrabold text-teal-650 dark:text-teal-400 hover:underline uppercase tracking-wider"
+          className="flex items-center gap-1.5 text-[10px] font-extrabold text-teal-655 dark:text-teal-400 hover:underline uppercase tracking-wider"
         >
-          <ArrowLeft size={12} /> Back to Home
+          <ArrowLeft size={12} /> Back to Welcome
         </Link>
         <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded-md border dark:border-slate-850">
-          Console Login
+          Account Login
         </span>
+      </div>
+
+      <div className="text-center space-y-1">
+        <h2 className="text-lg font-black tracking-tight text-slate-800 dark:text-white">
+          Sign In to AtithiSphere
+        </h2>
+        <p className="text-[10px] font-medium text-slate-450 dark:text-slate-500">
+          Access your personalized dashboard or guest portal
+        </p>
       </div>
 
       {errorMsg && (
@@ -46,14 +62,14 @@ export default function LoginPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4 text-left">
         {/* Email Address */}
         <div>
           <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-450 dark:text-slate-500 mb-1.5">
             Email Address
           </label>
           <div className="relative">
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-450">
+            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-455">
               <Mail size={14} />
             </span>
             <input
@@ -61,7 +77,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full pl-9 pr-4 py-2.5 bg-slate-55 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-white focus:outline-none focus:border-teal-500 transition font-semibold"
-              placeholder="Enter email address..."
+              placeholder="e.g. name@property.com"
               required
             />
           </div>
@@ -78,7 +94,7 @@ export default function LoginPage() {
             </Link>
           </div>
           <div className="relative">
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-450">
+            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-455">
               <Lock size={14} />
             </span>
             <input
@@ -116,9 +132,20 @@ export default function LoginPage() {
           type="submit"
           className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-3 rounded-xl shadow-lg transition active:scale-[0.98]"
         >
-          Sign In to Operations
+          Sign In
         </button>
       </form>
+
+      {/* Redirect Link */}
+      <div className="text-center pt-2 text-[10.5px] font-semibold text-slate-450">
+        New to AtithiSphere?{' '}
+        <Link 
+          to="/register" 
+          className="text-teal-655 dark:text-teal-400 hover:underline font-bold"
+        >
+          Register here
+        </Link>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { HotelContext } from '../contexts/HotelContext';
-import { MOCK_BOOKINGS } from '../utils/mockData';
+import { collection, onSnapshot, query, where, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
+import api from '../utils/api';
 import { Calendar, Search, Plus, Trash2, Edit, X, User } from 'lucide-react';
 
 export default function Bookings() {
@@ -19,9 +21,23 @@ export default function Bookings() {
   const [activeTab, setActiveTab] = useState('stays');
 
   useEffect(() => {
-    const saved = localStorage.getItem('atithisphere_v3_bookings');
-    setBookings(saved ? JSON.parse(saved) : MOCK_BOOKINGS);
+    let q = collection(db, 'bookings');
+    if (activeHotel && activeHotel.id !== 'all') {
+      q = query(collection(db, 'bookings'), where('hotelId', '==', activeHotel.id));
+    }
 
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setBookings(list);
+    });
+
+    return () => unsubscribe();
+  }, [activeHotel]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     if (tab === 'guests') {
@@ -31,11 +47,10 @@ export default function Bookings() {
     }
   }, [window.location.search]);
 
-  const handleAddBooking = (e) => {
+  const handleAddBooking = async (e) => {
     e.preventDefault();
     const newBk = {
-      id: `bk-${Math.floor(Math.random() * 9000) + 1000}`,
-      hotelId: activeHotel?.id,
+      hotelId: activeHotel?.id || '',
       guestName: name,
       guestPhone: "+91 99999 55555",
       restaurantName: restaurantName,
@@ -47,23 +62,22 @@ export default function Bookings() {
       amount: Number(amount)
     };
 
-    const updated = [newBk, ...bookings];
-    setBookings(updated);
-    localStorage.setItem('atithisphere_v3_bookings', JSON.stringify(updated));
-    setModalOpen(false);
-    setName('');
-    setRoom('');
+    try {
+      await api.post('/api/bookings', newBk);
+      setModalOpen(false);
+      setName('');
+      setRoom('');
+    } catch (err) {
+      console.error('Failed to create booking via backend:', err);
+    }
   };
 
-  const handleUpdateStatus = (id, nextStatus) => {
-    const updated = bookings.map((b) => {
-      if (b.id === id) {
-        return { ...b, status: nextStatus };
-      }
-      return b;
-    });
-    setBookings(updated);
-    localStorage.setItem('atithisphere_v3_bookings', JSON.stringify(updated));
+  const handleUpdateStatus = async (id, nextStatus) => {
+    try {
+      await api.put(`/api/bookings/${id}/status`, { status: nextStatus });
+    } catch (err) {
+      console.error('Failed to update booking status via backend:', err);
+    }
   };
 
   const filteredBookings = bookings

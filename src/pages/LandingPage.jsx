@@ -78,12 +78,12 @@ export default function LandingPage() {
 
           <Link
             to="/login"
-            className="text-xs font-bold text-slate-500 dark:text-slate-350 hover:text-teal-500 dark:hover:text-white px-3 py-2 rounded-lg transition"
+            className="text-xs font-bold text-slate-500 dark:text-slate-355 hover:text-teal-500 dark:hover:text-white px-3 py-2 rounded-lg transition"
           >
-            Staff Portal
+            Sign In
           </Link>
           <Link
-            to="/guest-auth"
+            to="/register"
             className="text-xs font-bold bg-teal-600 hover:bg-teal-500 text-white px-4 py-2.5 rounded-xl shadow-xl shadow-teal-900/20 hover:scale-[1.02] transition active:scale-[0.98]"
           >
             Guest Sign Up
@@ -114,21 +114,20 @@ export default function LandingPage() {
             No heavy hotel applications to download. Guests request amenities, linen, room service, or repairs instantly via WhatsApp, automatically feeding SLA-managed staff dispatch queues.
           </p>
 
-          {/* Call to Actions */}
           <div className="flex flex-col sm:flex-row gap-4 pt-4 w-full justify-center">
             <Link
-              to="/guest-auth"
+              to="/register"
               className="flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-500 hover:to-emerald-500 text-white font-extrabold text-xs rounded-2xl shadow-xl shadow-teal-500/20 hover:scale-[1.02] transition active:scale-[0.98] duration-200"
             >
-              Register stay as Guest <ArrowRight size={16} />
+              Guest Registration <ArrowRight size={16} />
             </Link>
             <Link
               to="/login"
               className={`flex items-center justify-center gap-2 px-6 py-3.5 font-extrabold text-xs rounded-2xl border transition duration-200 ${
-                lightMode ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-800' : 'bg-slate-900/60 hover:bg-slate-800 border-slate-850 text-slate-200'
+                lightMode ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-805' : 'bg-slate-900/60 hover:bg-slate-800 border-slate-850 text-slate-205'
               }`}
             >
-              Sign In to Staff Console
+              Sign In <ArrowUpRight size={16} />
             </Link>
           </div>
         </section>
@@ -214,7 +213,7 @@ export default function LandingPage() {
 
               <div className="pt-2">
                 <Link
-                  to="/guest-auth"
+                  to="/register?type=guest"
                   className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-white font-extrabold text-[10px] rounded-xl flex items-center justify-center gap-1"
                 >
                   Test Simulator in Guest Space <ArrowUpRight size={12} />
@@ -391,7 +390,7 @@ export default function LandingPage() {
             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Product</h4>
             <ul className="space-y-2 text-[10px] font-medium text-slate-500 dark:text-slate-400">
               <li><a href="#features" className="hover:text-teal-500 transition">Features</a></li>
-              <li><Link to="/guest-auth" className="hover:text-teal-500 transition">Guest Portal</Link></li>
+              <li><Link to="/register?type=guest" className="hover:text-teal-500 transition">Guest Portal</Link></li>
               <li><Link to="/login" className="hover:text-teal-500 transition">Staff Dashboard</Link></li>
             </ul>
           </div>

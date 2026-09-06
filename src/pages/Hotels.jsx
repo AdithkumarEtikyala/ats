@@ -1,18 +1,20 @@
-import React, { useContext, useState, useMemo } from 'react';
+import React, { useContext, useState, useMemo, useEffect } from 'react';
 import { HotelContext } from '../contexts/HotelContext';
 import { AuthContext } from '../contexts/AuthContext';
 import { TicketContext } from '../contexts/TicketContext';
-import { MOCK_STAFF, MOCK_BOOKINGS } from '../utils/mockData';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import { useNavigate } from 'react-router-dom';
 import Bookings from './Bookings';
 import Tickets from './Tickets';
 import Feedback from './Feedback';
 import SettingsPage from './SettingsPage';
-import { Building, Plus, MapPin, Sparkles, X, ShieldAlert, ArrowLeft, Ticket, CheckCircle, Clock, Info, Check, Calendar, Users, AlertTriangle, Brush, Wrench, IndianRupee, MessageSquare, PhoneCall } from 'lucide-react';
+import Staff from './Staff';
+import { Building, Plus, MapPin, Sparkles, X, ShieldAlert, ArrowLeft, Ticket, CheckCircle, Clock, Info, Check, Calendar, Users, AlertTriangle, Brush, Wrench, IndianRupee, MessageSquare, PhoneCall, Trash2, UserCheck, Users2, Mail, Phone, ShieldCheck, Edit, User, Bed } from 'lucide-react';
 
 export default function Hotels() {
-  const { hotels, activeHotel, addHotel, enterWorkspace, exitWorkspace } = useContext(HotelContext);
-  const { user } = useContext(AuthContext);
+  const { hotels, activeHotel, addHotel, updateHotel, deleteHotel, enterWorkspace, exitWorkspace } = useContext(HotelContext);
+  const { user, registerUser } = useContext(AuthContext);
   const { tickets, chats } = useContext(TicketContext);
   const navigate = useNavigate();
   
@@ -20,11 +22,66 @@ export default function Hotels() {
   const [drillDownHotel, setDrillDownHotel] = useState(null);
   const [workspaceTab, setWorkspaceTab] = useState('overview');
   const [bookings, setBookings] = useState([]);
+  const [hotelStaff, setHotelStaff] = useState([]);
+
+  // Platform Realtime Collections for Hierarchy View
+  const [ownersList, setOwnersList] = useState([]);
+  const [allStaffList, setAllStaffList] = useState([]);
+  const [allBookingsList, setAllBookingsList] = useState([]);
+
+  // Assign Owner Modal
+  const [assignOwnerModalHotel, setAssignOwnerModalHotel] = useState(null);
+  const [selectedOwnerEmail, setSelectedOwnerEmail] = useState('');
+
+  // Realtime Owners
+  useEffect(() => {
+    const q = query(collection(db, 'users'), where('role', '==', 'Hotel Owner'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setOwnersList(list);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Realtime All Staff
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'staff'), (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllStaffList(list);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Realtime All Bookings
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'bookings'), (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllBookingsList(list);
+    });
+    return () => unsubscribe();
+  }, []);
 
   React.useEffect(() => {
-    const saved = localStorage.getItem('atithisphere_v3_bookings');
-    setBookings(saved ? JSON.parse(saved) : MOCK_BOOKINGS);
+    let q = collection(db, 'bookings');
+    if (activeHotel && activeHotel.id !== 'all') {
+      q = query(collection(db, 'bookings'), where('hotelId', '==', activeHotel.id));
+    }
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setBookings(list);
+    });
+    return () => unsubscribe();
   }, [activeHotel]);
+
+  React.useEffect(() => {
+    if (!drillDownHotel) return;
+    const q = query(collection(db, 'staff'), where('hotelId', '==', drillDownHotel.id));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setHotelStaff(list);
+    });
+    return () => unsubscribe();
+  }, [drillDownHotel]);
   
   // Onboarding Modal States
   const [modalOpen, setModalOpen] = useState(false);
@@ -47,10 +104,11 @@ export default function Hotels() {
   const [email, setEmail] = useState('');
   const [website, setWebsite] = useState('');
 
-  // Manager Details
+  // Manager / Front Desk Admin Details
   const [managerName, setManagerName] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
   const [managerPhone, setManagerPhone] = useState('');
+  const [managerPassword, setManagerPassword] = useState('password123');
 
   // WhatsApp Config
   const [waNumber, setWaNumber] = useState('');
@@ -80,11 +138,11 @@ export default function Hotels() {
     );
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
     // Save onboarding hotel
-    addHotel({
+    const newHotel = await addHotel({
       name,
       city,
       rooms: Number(rooms),
@@ -107,8 +165,22 @@ export default function Hotels() {
       checkInTime,
       checkOutTime,
       amenities: selectedAmenities,
-      img: coverImage
+      img: coverImage,
+      ownerEmail: managerEmail
     });
+
+    if (newHotel && managerEmail) {
+      // Automatically register Hotel Owner for this hotel
+      await registerUser({
+        email: managerEmail,
+        password: managerPassword || 'password123',
+        name: managerName || 'Hotel Owner',
+        phone: managerPhone || '',
+        role: 'Hotel Owner',
+        hotelId: newHotel.id,
+        employeeId: `OWN-${Math.floor(Math.random() * 900) + 100}`
+      });
+    }
 
     setModalOpen(false);
     resetForm();
@@ -129,6 +201,7 @@ export default function Hotels() {
     setManagerName('');
     setManagerEmail('');
     setManagerPhone('');
+    setManagerPassword('password123');
     setWaNumber('');
     setWaApiKey('');
     setWaWebhook('');
@@ -139,6 +212,17 @@ export default function Hotels() {
   };
 
   const isSuperAdmin = user?.role === 'Super Admin';
+
+  const handleRemoveHotel = async (hotelId) => {
+    if (window.confirm('Are you sure you want to delete this hotel property? All associated records will be removed.')) {
+      try {
+        await deleteHotel(hotelId);
+        alert('Hotel property deleted successfully.');
+      } catch (err) {
+        alert('Failed to delete hotel property: ' + (err.response?.data?.error || err.message));
+      }
+    }
+  };
 
   const visibleHotels = useMemo(() => {
     if (isSuperAdmin) return hotels;
@@ -156,7 +240,6 @@ export default function Hotels() {
     const hotelTkts = tickets.filter((t) => t.hotelId === drillDownHotel.id);
     const openTkts = hotelTkts.filter((t) => t.status !== 'Completed' && t.status !== 'Closed');
     const resolvedTkts = hotelTkts.filter((t) => t.status === 'Completed' || t.status === 'Closed');
-    const hotelStaff = MOCK_STAFF.filter((s) => s.hotelId === drillDownHotel.id);
 
     return (
       <div className="space-y-6 text-left">
@@ -285,21 +368,23 @@ export default function Hotels() {
         </div>
 
         {/* Workspace Sub-tabs Navigation */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800 gap-6 text-xs font-bold mb-6 overflow-x-auto pb-1">
+        <div className="flex border-b border-slate-200 dark:border-slate-800 gap-4 text-xs font-bold mb-6 overflow-x-auto pb-1">
           {[
-            { id: 'overview', label: 'Dashboard' },
-            { id: 'bookings', label: 'Bookings' },
-            { id: 'tickets', label: 'Service Requests' },
-            { id: 'housekeeping', label: 'Housekeeping' },
-            { id: 'maintenance', label: 'Maintenance' },
-            { id: 'food-beverage', label: 'Food & Beverage' },
-            { id: 'feedback', label: 'Feedback' },
-            { id: 'settings', label: 'Hotel Settings' }
+            { id: 'overview', label: '📊 Overview' },
+            { id: 'owners', label: '👤 Hotel Owners' },
+            { id: 'staff', label: '👥 Staff Roster' },
+            { id: 'bookings', label: '🧳 Customers & Guests' },
+            { id: 'rooms', label: '🛌 Rooms & Inventory' },
+            { id: 'tickets', label: '🎫 Service Requests' },
+            { id: 'housekeeping', label: '🧹 Housekeeping' },
+            { id: 'maintenance', label: '🔧 Maintenance' },
+            { id: 'feedback', label: '💬 WhatsApp & Reviews' },
+            { id: 'settings', label: '⚙️ Hotel Settings' }
           ].map(tab => (
             <button
               key={tab.id}
               onClick={() => setWorkspaceTab(tab.id)}
-              className={`pb-2 border-b-2 transition whitespace-nowrap ${
+              className={`pb-2 border-b-2 transition whitespace-nowrap px-1 ${
                 workspaceTab === tab.id 
                   ? 'border-teal-500 text-teal-500' 
                   : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-200'
@@ -320,7 +405,7 @@ export default function Hotels() {
                 <div className="flex flex-wrap gap-3">
                   <button
                     onClick={() => { setWorkspaceTab('bookings'); }}
-                    className="px-4 py-2 bg-teal-655 hover:bg-teal-600 text-white font-extrabold text-xs rounded-xl shadow-md transition flex items-center gap-1.5"
+                    className="px-4 py-2 bg-teal-650 hover:bg-teal-600 text-white font-extrabold text-xs rounded-xl shadow-md transition flex items-center gap-1.5"
                   >
                     <Plus size={14} /> Create Booking
                   </button>
@@ -345,7 +430,7 @@ export default function Hotels() {
                 </div>
               </div>
 
-              {/* Stats Counters Grid (10 items) */}
+              {/* Stats Counters Grid */}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                   <div className="space-y-1">
@@ -397,7 +482,7 @@ export default function Hotels() {
 
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                   <div className="space-y-1">
-                    <span className="text-[8px] uppercase tracking-wider text-slate-400 font-extrabold block">Open Service Requests</span>
+                    <span className="text-[8px] uppercase tracking-wider text-slate-400 font-extrabold block">Open Requests</span>
                     <div className="text-base font-bold text-red-500">{openServiceRequests} Pending</div>
                   </div>
                   <div className="h-7 w-7 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center"><AlertTriangle size={14} /></div>
@@ -565,8 +650,104 @@ export default function Hotels() {
             </div>
           )}
 
+          {workspaceTab === 'owners' && (
+            <div className="space-y-6 animate-fade-in text-left">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Hotel Owner Management for {activeHotel.name}</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Configure owner assignment, contract parameters, and management permissions</p>
+                </div>
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => {
+                      setAssignOwnerModalHotel(activeHotel);
+                      setSelectedOwnerEmail(activeHotel.ownerEmail || '');
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl shadow-lg transition"
+                  >
+                    <UserCheck size={14} /> Assign / Change Owner
+                  </button>
+                )}
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-sm">
+                <div className="flex items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                  <div className="h-14 w-14 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-black text-xl">
+                    👑
+                  </div>
+                  <div>
+                    <h4 className="text-base font-extrabold text-slate-800 dark:text-slate-100">
+                      {activeHotel.ownerName || (ownersList.find(o => o.email === activeHotel.ownerEmail)?.name) || 'Suresh Mehta (Super Owner)'}
+                    </h4>
+                    <span className="text-xs text-slate-500 font-semibold">{activeHotel.ownerEmail || 'owner1@atithisphere.com'}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div className="p-4 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850 space-y-1">
+                    <span className="text-[9px] uppercase font-bold text-slate-400">Owner Access Plan</span>
+                    <div className="font-bold text-teal-500">{activeHotel.subPlan || 'Pro Premium Enterprise'}</div>
+                  </div>
+                  <div className="p-4 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850 space-y-1">
+                    <span className="text-[9px] uppercase font-bold text-slate-400">Assigned Property</span>
+                    <div className="font-bold text-slate-800 dark:text-slate-200">{activeHotel.name} ({activeHotel.city})</div>
+                  </div>
+                  <div className="p-4 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border dark:border-slate-850 space-y-1">
+                    <span className="text-[9px] uppercase font-bold text-slate-400">Management Scope</span>
+                    <div className="font-bold text-emerald-500">Full Staff & Guest Administration</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {workspaceTab === 'bookings' && (
             <div className="animate-fade-in"><Bookings /></div>
+          )}
+
+          {workspaceTab === 'rooms' && (
+            <div className="space-y-6 animate-fade-in text-left">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">{activeHotel.name} Rooms & Inventory</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Manage suite categories, real-time occupancy status, and room rates</p>
+                </div>
+                <div className="text-xs font-bold px-3 py-1 bg-teal-500/10 text-teal-500 rounded-xl">
+                  Total Suites: {activeHotel.rooms}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { roomNo: '101', category: 'Executive Deluxe', status: 'Occupied', guest: 'Rahul Sharma', price: '₹5,500' },
+                  { roomNo: '102', category: 'Executive Deluxe', status: 'Available', guest: 'Vacant', price: '₹5,500' },
+                  { roomNo: '201', category: 'Royal Suite', status: 'Occupied', guest: 'Priya Mehta', price: '₹8,500' },
+                  { roomNo: '202', category: 'Royal Suite', status: 'Cleaning', guest: 'Turnover in progress', price: '₹8,500' },
+                  { roomNo: '301', category: 'Presidential Suite', status: 'Occupied', guest: 'Vikram Seth', price: '₹12,500' },
+                  { roomNo: '302', category: 'Presidential Suite', status: 'Available', guest: 'Vacant', price: '₹12,500' },
+                  { roomNo: '401', category: 'Standard Twin', status: 'Available', guest: 'Vacant', price: '₹3,800' },
+                  { roomNo: '402', category: 'Standard Twin', status: 'Maintenance', guest: 'AC Servicing', price: '₹3,800' }
+                ].map((r, i) => (
+                  <div key={i} className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-2 shadow-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="font-extrabold text-sm text-slate-850 dark:text-slate-100">Suite {r.roomNo}</span>
+                      <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${
+                        r.status === 'Occupied' ? 'bg-amber-500/10 text-amber-500' :
+                        r.status === 'Available' ? 'bg-emerald-500/10 text-emerald-500' :
+                        r.status === 'Cleaning' ? 'bg-teal-500/10 text-teal-500' : 'bg-red-500/10 text-red-500'
+                      }`}>
+                        {r.status}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-semibold">{r.category}</p>
+                    <div className="pt-2 border-t dark:border-slate-800 flex justify-between items-center text-xs font-bold">
+                      <span className="text-slate-400 font-normal">{r.guest}</span>
+                      <span className="text-teal-500">{r.price}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {workspaceTab === 'tickets' && (
@@ -581,8 +762,8 @@ export default function Hotels() {
             <div className="animate-fade-in"><Tickets dept="Maintenance" /></div>
           )}
 
-          {workspaceTab === 'food-beverage' && (
-            <div className="animate-fade-in"><Tickets dept="Food & Beverage" /></div>
+          {workspaceTab === 'staff' && (
+            <div className="animate-fade-in"><Staff /></div>
           )}
 
           {workspaceTab === 'feedback' && (
@@ -599,7 +780,7 @@ export default function Hotels() {
 
   return (
     <div className="space-y-6 text-left">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+      <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200">Hotel Profiles</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Manage and view multi-hotel assets registered under the system</p>
@@ -632,9 +813,23 @@ export default function Hotels() {
                   <span className="px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/20 text-teal-600 dark:text-teal-400 text-[9px] font-bold">
                     ID: {hotel.id}
                   </span>
-                  <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
-                    {hotel.type || 'Resort'}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
+                      {hotel.type || 'Resort'}
+                    </span>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveHotel(hotel.id);
+                        }}
+                        className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition"
+                        title="Delete Hotel"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <h3 className="font-extrabold text-sm text-slate-850 dark:text-slate-200 group-hover:text-teal-650 transition">
                   {hotel.name}
@@ -642,12 +837,53 @@ export default function Hotels() {
                 <div className="flex items-center gap-1 text-slate-500 text-[11px] font-semibold">
                   <MapPin size={12} /> {hotel.city}
                 </div>
+
+                {/* Hotel Hierarchy Tree Summary Box */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-950/60 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-1.5 text-left text-[11px]">
+                  <div className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 font-mono flex justify-between items-center">
+                    <span>Hierarchy Tree</span>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAssignOwnerModalHotel(hotel);
+                          setSelectedOwnerEmail(hotel.ownerEmail || '');
+                        }}
+                        className="text-teal-500 hover:underline text-[9px] lowercase"
+                      >
+                        [assign owner]
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1 text-slate-650 dark:text-slate-350 font-medium">
+                    <div className="flex justify-between items-center">
+                      <span className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-bold">
+                        <UserCheck size={12} className="text-teal-500 shrink-0" /> Owner:
+                      </span>
+                      <span className="font-bold text-teal-600 dark:text-teal-400 truncate max-w-[120px]">
+                        {hotel.ownerName || (ownersList.find(o => o.email === hotel.ownerEmail)?.name) || 'Suresh Mehta'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-bold">
+                        <Users2 size={12} className="text-emerald-500 shrink-0" /> Staff Roster:
+                      </span>
+                      <span>{allStaffList.filter(s => s.hotelId === hotel.id).length || 4} Crew</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-bold">
+                        <User size={12} className="text-teal-500 shrink-0" /> Customers:
+                      </span>
+                      <span>{allBookingsList.filter(b => b.hotelId === hotel.id).length || 8} Stays</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
             <div className="p-5 border-t border-slate-200 dark:border-slate-800/80 flex flex-col gap-3 text-xs font-semibold">
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 dark:text-slate-450">Active Rooms</span>
+                <span className="text-slate-500 dark:text-slate-450">Active Suites</span>
                 <span className="font-bold text-slate-850 dark:text-slate-350">{hotel.rooms} Rooms</span>
               </div>
               <button
@@ -659,12 +895,76 @@ export default function Hotels() {
                 }}
                 className="w-full py-2 bg-teal-650 hover:bg-teal-600 text-white font-bold text-[10.5px] rounded-xl shadow-md transition"
               >
-                Select Workspace
+                Enter Workspace & Console
               </button>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Assign / Change Owner Modal */}
+      {assignOwnerModalHotel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm" onClick={() => setAssignOwnerModalHotel(null)}></div>
+          
+          <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-left">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="font-extrabold text-base text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <UserCheck size={18} className="text-teal-500" /> Assign Hotel Owner
+              </h3>
+              <button onClick={() => setAssignOwnerModalHotel(null)} className="text-slate-400 hover:text-slate-200">
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 font-medium">
+              Select a registered Hotel Owner account to assign management responsibility for <strong className="text-slate-800 dark:text-slate-200">{assignOwnerModalHotel.name}</strong>.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400">Select Hotel Owner Account</label>
+              <select
+                value={selectedOwnerEmail}
+                onChange={(e) => setSelectedOwnerEmail(e.target.value)}
+                className="w-full p-3 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-bold"
+              >
+                <option value="">-- Select Owner Account --</option>
+                {ownersList.map(o => (
+                  <option key={o.id} value={o.email}>
+                    {o.name} ({o.email})
+                  </option>
+                ))}
+                {ownersList.length === 0 && (
+                  <option value="owner1@atithisphere.com">Suresh Mehta (owner1@atithisphere.com)</option>
+                )}
+              </select>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setAssignOwnerModalHotel(null)}
+                className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const foundOwner = ownersList.find(o => o.email === selectedOwnerEmail);
+                  await updateHotel(assignOwnerModalHotel.id, {
+                    ownerEmail: selectedOwnerEmail,
+                    ownerName: foundOwner?.name || selectedOwnerEmail.split('@')[0]
+                  });
+                  alert(`Assigned owner ${selectedOwnerEmail} to ${assignOwnerModalHotel.name}`);
+                  setAssignOwnerModalHotel(null);
+                }}
+                className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl shadow-md"
+              >
+                Save Assignment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add SaaS Hotel Onboarding Modal */}
       {modalOpen && (
@@ -836,42 +1136,51 @@ export default function Hotels() {
                       placeholder="www.property.com"
                     />
                   </div>
-                </div>
-
-                <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-teal-600 dark:text-teal-450 border-b dark:border-slate-800 pb-1 pt-2">Hotel Manager Profile</h4>
-                <div className="grid grid-cols-3 gap-3">
+                                <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-teal-600 dark:text-teal-450 border-b dark:border-slate-800 pb-1 pt-2">Hotel Owner Account Setup</h4>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">Manager Name</label>
+                    <label className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">Owner Name</label>
                     <input
                       type="text"
                       value={managerName}
                       onChange={(e) => setManagerName(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none"
-                      placeholder="Name of Manager"
+                      placeholder="Name of Owner"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">Manager Email</label>
+                    <label className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">Owner Email Login</label>
                     <input
                       type="email"
                       value={managerEmail}
                       onChange={(e) => setManagerEmail(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none"
-                      placeholder="manager@property.com"
+                      placeholder="owner@property.com"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">Manager Phone</label>
+                    <label className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">Owner Phone</label>
                     <input
                       type="text"
                       value={managerPhone}
                       onChange={(e) => setManagerPhone(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl outline-none"
                       placeholder="+91 XXXXX XXXXX"
                     />
                   </div>
+                  <div>
+                    <label className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">Owner Password Login</label>
+                    <input
+                      type="text"
+                      value={managerPassword}
+                      onChange={(e) => setManagerPassword(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none"
+                      placeholder="Password Key"
+                      required
+                    />
+                  </div>    </div>
                 </div>
               </div>
             )}
