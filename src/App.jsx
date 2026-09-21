@@ -96,7 +96,7 @@ export default function App() {
                 <Route
                   path="/hotels"
                   element={
-                    <ProtectedRoute allowedRoles={['Super Admin', 'Hotel Owner']}>
+                    <ProtectedRoute allowedRoles={['Super Admin', 'Hotel Owner', 'Manager']}>
                       <MainLayout>
                         <Hotels />
                       </MainLayout>
@@ -106,7 +106,7 @@ export default function App() {
                 <Route
                   path="/hotel-owners"
                   element={
-                    <ProtectedRoute allowedRoles={['Super Admin']}>
+                    <ProtectedRoute allowedRoles={['Super Admin', 'Manager']}>
                       <MainLayout>
                         <HotelOwners />
                       </MainLayout>

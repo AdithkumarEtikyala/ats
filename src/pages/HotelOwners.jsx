@@ -8,13 +8,14 @@ import api from '../utils/api';
 export default function HotelOwners() {
   const [owners, setOwners] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { registerUser } = useContext(AuthContext);
+  const { user, registerUser } = useContext(AuthContext);
 
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
   const [plan, setPlan] = useState('Pro Premium');
 
   // Listen to Hotel Owners in Firestore real-time
@@ -33,23 +34,23 @@ export default function HotelOwners() {
           billing: 'Monthly'
         };
       });
-      setOwners(list);
+      setOwners(user?.role === 'Manager' ? list.filter((owner) => owner.hotelId === user.hotelId) : list);
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   const handleAddOwner = async (e) => {
     e.preventDefault();
-    if (!name || !email || !phone) return;
+    if (!name || !email || !phone || !password) return;
     
     const response = await registerUser({
       email: email.toLowerCase(),
-      password: 'password123', // default onboarding password
+      password,
       name,
       phone,
       role: 'Hotel Owner',
-      hotelId: 'all', // Owner owns all/multiple properties
+      hotelId: user?.role === 'Manager' ? user.hotelId : 'all',
       employeeId: `OWN-${Math.floor(Math.random() * 9000) + 1000}`,
       plan
     });
@@ -60,6 +61,7 @@ export default function HotelOwners() {
       setName('');
       setEmail('');
       setPhone('');
+      setPassword('');
     } else {
       alert('Failed to register Hotel Owner: ' + response.message);
     }
@@ -197,6 +199,10 @@ export default function HotelOwners() {
               <div>
                 <label className="block text-[10px] text-slate-500 uppercase mb-1">Mobile Number</label>
                 <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} required className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl outline-none" placeholder="+91 98000 11223" />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 uppercase mb-1">Temporary Password</label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl outline-none" />
               </div>
               <div>
                 <label className="block text-[10px] text-slate-500 uppercase mb-1">Subscription Plan Level</label>

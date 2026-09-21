@@ -10,10 +10,11 @@ import Tickets from './Tickets';
 import Feedback from './Feedback';
 import SettingsPage from './SettingsPage';
 import Staff from './Staff';
+import Reports from './Reports';
 import { Building, Plus, MapPin, Sparkles, X, ShieldAlert, ArrowLeft, Ticket, CheckCircle, Clock, Info, Check, Calendar, Users, AlertTriangle, Brush, Wrench, IndianRupee, MessageSquare, PhoneCall, Trash2, UserCheck, Users2, Mail, Phone, ShieldCheck, Edit, User, Bed } from 'lucide-react';
 
 export default function Hotels() {
-  const { hotels, activeHotel, addHotel, updateHotel, deleteHotel, enterWorkspace, exitWorkspace } = useContext(HotelContext);
+  const { hotels, activeHotel, activeWorkspaceHotel, addHotel, updateHotel, deleteHotel, enterWorkspace, exitWorkspace } = useContext(HotelContext);
   const { user, registerUser } = useContext(AuthContext);
   const { tickets, chats } = useContext(TicketContext);
   const navigate = useNavigate();
@@ -89,13 +90,13 @@ export default function Hotels() {
 
   // Onboarding Form Fields
   const [name, setName] = useState('');
-  const [type, setType] = useState('Boutique');
+  const [type, setType] = useState('');
   const [description, setDescription] = useState('');
-  const [rooms, setRooms] = useState(50);
+  const [rooms, setRooms] = useState('');
   
   // Address
   const [street, setStreet] = useState('');
-  const [city, setCity] = useState('Mumbai');
+  const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
 
@@ -108,7 +109,7 @@ export default function Hotels() {
   const [managerName, setManagerName] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
   const [managerPhone, setManagerPhone] = useState('');
-  const [managerPassword, setManagerPassword] = useState('password123');
+  const [managerPassword, setManagerPassword] = useState('');
 
   // WhatsApp Config
   const [waNumber, setWaNumber] = useState('');
@@ -116,14 +117,14 @@ export default function Hotels() {
   const [waWebhook, setWaWebhook] = useState('');
 
   // Subscription & Settings
-  const [subPlan, setSubPlan] = useState('Pro'); // Basic, Pro, Enterprise
-  const [billingCycle, setBillingCycle] = useState('Annually');
-  const [currency, setCurrency] = useState('INR');
-  const [checkInTime, setCheckInTime] = useState('12:00 PM');
-  const [checkOutTime, setCheckOutTime] = useState('11:00 AM');
+  const [subPlan, setSubPlan] = useState('');
+  const [billingCycle, setBillingCycle] = useState('');
+  const [currency, setCurrency] = useState('');
+  const [checkInTime, setCheckInTime] = useState('');
+  const [checkOutTime, setCheckOutTime] = useState('');
 
   // Amenities
-  const [selectedAmenities, setSelectedAmenities] = useState(['WiFi', 'Swimming Pool', 'Room Service']);
+  const [selectedAmenities, setSelectedAmenities] = useState([]);
 
   // Images
   const [coverImage, setCoverImage] = useState('https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&auto=format&fit=crop&q=60');
@@ -173,7 +174,7 @@ export default function Hotels() {
       // Automatically register Hotel Owner for this hotel
       await registerUser({
         email: managerEmail,
-        password: managerPassword || 'password123',
+        password: managerPassword,
         name: managerName || 'Hotel Owner',
         phone: managerPhone || '',
         role: 'Hotel Owner',
@@ -188,11 +189,11 @@ export default function Hotels() {
 
   const resetForm = () => {
     setName('');
-    setType('Boutique');
+    setType('');
     setDescription('');
-    setRooms(50);
+    setRooms('');
     setStreet('');
-    setCity('Mumbai');
+    setCity('');
     setState('');
     setZip('');
     setPhone('');
@@ -201,17 +202,23 @@ export default function Hotels() {
     setManagerName('');
     setManagerEmail('');
     setManagerPhone('');
-    setManagerPassword('password123');
+    setManagerPassword('');
     setWaNumber('');
     setWaApiKey('');
     setWaWebhook('');
-    setSubPlan('Pro');
-    setBillingCycle('Annually');
-    setSelectedAmenities(['WiFi', 'Swimming Pool', 'Room Service']);
+    setSubPlan('');
+    setBillingCycle('');
+    setSelectedAmenities([]);
     setFormStep(1);
   };
 
   const isSuperAdmin = user?.role === 'Super Admin';
+  const isHotelAdmin = ['Super Admin', 'Manager'].includes(user?.role);
+
+  const handleExitWorkspace = () => {
+    exitWorkspace();
+    navigate(user?.role === 'Guest' ? '/guest' : '/dashboard');
+  };
 
   const handleRemoveHotel = async (hotelId) => {
     if (window.confirm('Are you sure you want to delete this hotel property? All associated records will be removed.')) {
@@ -227,14 +234,40 @@ export default function Hotels() {
   const visibleHotels = useMemo(() => {
     if (isSuperAdmin) return hotels;
     if (user?.role === 'Hotel Owner') {
-      // Suresh Mehta owns hotel-1 and hotel-2
-      if (user.email === 'owner1@atithisphere.com') {
-        return hotels.filter(h => h.id === 'hotel-1' || h.id === 'hotel-2');
-      }
-      return hotels.filter(h => h.id === user.hotelId);
+      const assignedIds = Array.isArray(user.hotelIds) ? user.hotelIds : [user.hotelId];
+      return hotels.filter((hotel) => assignedIds.includes(hotel.id));
     }
     return hotels.filter(h => h.id === user?.hotelId);
   }, [hotels, user, isSuperAdmin]);
+
+  const generatedRooms = useMemo(() => {
+    if (!activeHotel) return [];
+
+    const roomsArray = [];
+    const roomBookings = {};
+    bookings
+      .filter((booking) => booking.hotelId === activeHotel.id)
+      .forEach((booking) => {
+        if (booking.roomNumber) roomBookings[booking.roomNumber] = booking;
+      });
+
+    for (let i = 1; i <= (activeHotel.rooms || 50); i++) {
+      const floor = Math.floor((i - 1) / 10) + 1;
+      const numOnFloor = ((i - 1) % 10) + 1;
+      const roomNo = `${floor}${numOnFloor.toString().padStart(2, '0')}`;
+      const booking = roomBookings[roomNo] || roomBookings[i.toString()];
+      const category = i % 5 === 0 ? 'Presidential Suite' : (i % 3 === 0 ? 'Royal Suite' : 'Executive Deluxe');
+
+      roomsArray.push({
+        roomNo,
+        category,
+        status: booking ? 'Occupied' : 'Available',
+        guest: booking?.guestName || 'Vacant',
+        price: category === 'Presidential Suite' ? '₹12,500' : (category === 'Royal Suite' ? '₹8,500' : '₹5,500')
+      });
+    }
+    return roomsArray;
+  }, [activeHotel, bookings]);
 
   if (drillDownHotel) {
     const hotelTkts = tickets.filter((t) => t.hotelId === drillDownHotel.id);
@@ -329,21 +362,22 @@ export default function Hotels() {
     );
   }
 
-  if (activeHotel) {
+  if (activeWorkspaceHotel) {
     const hotelBookings = bookings.filter(b => b.hotelId === activeHotel.id);
     const occupiedRooms = Math.min(hotelBookings.length, activeHotel.rooms);
     const availableRooms = activeHotel.rooms - occupiedRooms;
     const activeGuests = hotelBookings.length;
     
-    const checkinsToday = hotelBookings.filter(b => b.checkIn === '2026-07-04' || b.checkIn === new Date().toISOString().split('T')[0]).length || 2;
-    const checkoutsToday = 1;
+    const today = new Date().toISOString().split('T')[0];
+    const checkinsToday = hotelBookings.filter((booking) => booking.checkIn === today).length;
+    const checkoutsToday = hotelBookings.filter((booking) => booking.checkOut === today).length;
 
     const hotelTickets = tickets.filter(t => t.hotelId === activeHotel.id);
     const openServiceRequests = hotelTickets.filter(t => t.status !== 'Completed' && t.status !== 'Closed').length;
     const housekeepingTasks = hotelTickets.filter(t => t.department === 'Housekeeping' && t.status !== 'Completed' && t.status !== 'Closed').length;
     const maintenanceTasks = hotelTickets.filter(t => t.department === 'Maintenance' && t.status !== 'Completed' && t.status !== 'Closed').length;
 
-    const hotelRevenue = hotelBookings.reduce((sum, b) => sum + (b.amount || 5000), 0);
+    const hotelRevenue = hotelBookings.reduce((sum, booking) => sum + (Number(booking.amount) || 0), 0);
     const hotelChats = chats ? chats.filter(c => hotelBookings.some(b => b.guestPhone === c.phone || b.guestName.toLowerCase().includes(c.name.toLowerCase()))) : [];
 
     return (
@@ -360,7 +394,7 @@ export default function Hotels() {
             </div>
           </div>
           <button
-            onClick={() => exitWorkspace()}
+            onClick={handleExitWorkspace}
             className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 dark:border-slate-800 bg-slate-105 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-705 dark:text-slate-200 font-bold text-xs rounded-xl shadow transition"
           >
             <ArrowLeft size={14} /> Exit Workspace
@@ -379,6 +413,7 @@ export default function Hotels() {
             { id: 'housekeeping', label: '🧹 Housekeeping' },
             { id: 'maintenance', label: '🔧 Maintenance' },
             { id: 'feedback', label: '💬 WhatsApp & Reviews' },
+            { id: 'reports', label: '📈 Reports & Analytics' },
             { id: 'settings', label: '⚙️ Hotel Settings' }
           ].map(tab => (
             <button
@@ -434,7 +469,23 @@ export default function Hotels() {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                   <div className="space-y-1">
-                    <span className="text-[8px] uppercase tracking-wider text-slate-400 font-extrabold block">Total Rooms</span>
+                    <span className="text-[8px] uppercase tracking-wider text-slate-400 font-extrabold block flex items-center gap-1.5">
+                      Total Rooms
+                      {isHotelAdmin && (
+                        <button 
+                          onClick={() => {
+                            const newRooms = window.prompt("Enter new total number of rooms:", activeHotel.rooms);
+                            if (newRooms !== null && !isNaN(parseInt(newRooms))) {
+                              updateHotel(activeHotel.id, { rooms: parseInt(newRooms) });
+                            }
+                          }}
+                          className="text-slate-400 hover:text-teal-500 transition"
+                          title="Update Room Count"
+                        >
+                          <Edit size={10} />
+                        </button>
+                      )}
+                    </span>
                     <div className="text-base font-bold text-slate-800 dark:text-slate-100">{activeHotel.rooms} Suites</div>
                   </div>
                   <div className="h-7 w-7 rounded-lg bg-teal-500/10 text-teal-500 flex items-center justify-center"><Building size={14} /></div>
@@ -626,24 +677,6 @@ export default function Hotels() {
                     </div>
                   </div>
 
-                  {/* Recent Feedback */}
-                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-3 shadow-sm">
-                    <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b dark:border-slate-800 pb-2">Recent Guest Reviews</h3>
-                    <div className="space-y-3">
-                      {[
-                        { name: 'Arjun Mehta', room: '305', rating: 5, text: 'Superb WhatsApp integration! Towels arrived in under 3 minutes.' },
-                        { name: 'Priya Sharma', room: '102', rating: 4.8, text: 'Food was delicious, service prompt. Highly recommend.' }
-                      ].map((rev, idx) => (
-                        <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950/40 border dark:border-slate-850 rounded-2xl text-[10px]">
-                          <div className="flex justify-between font-bold">
-                            <span className="text-slate-800 dark:text-white">{rev.name} (Room {rev.room})</span>
-                            <span className="text-amber-500">★ {rev.rating}</span>
-                          </div>
-                          <p className="theme-muted italic mt-1 font-medium">"{rev.text}"</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 </div>
 
               </div>
@@ -677,9 +710,9 @@ export default function Hotels() {
                   </div>
                   <div>
                     <h4 className="text-base font-extrabold text-slate-800 dark:text-slate-100">
-                      {activeHotel.ownerName || (ownersList.find(o => o.email === activeHotel.ownerEmail)?.name) || 'Suresh Mehta (Super Owner)'}
+                      {activeHotel.ownerName || ownersList.find(o => o.email === activeHotel.ownerEmail)?.name || 'Unassigned'}
                     </h4>
-                    <span className="text-xs text-slate-500 font-semibold">{activeHotel.ownerEmail || 'owner1@atithisphere.com'}</span>
+                    <span className="text-xs text-slate-500 font-semibold">{activeHotel.ownerEmail || 'No owner assigned'}</span>
                   </div>
                 </div>
 
@@ -712,22 +745,29 @@ export default function Hotels() {
                   <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">{activeHotel.name} Rooms & Inventory</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Manage suite categories, real-time occupancy status, and room rates</p>
                 </div>
-                <div className="text-xs font-bold px-3 py-1 bg-teal-500/10 text-teal-500 rounded-xl">
-                  Total Suites: {activeHotel.rooms}
+                <div className="flex items-center gap-2">
+                  <div className="text-xs font-bold px-3 py-1 bg-teal-500/10 text-teal-500 rounded-xl">
+                    Total Suites: {activeHotel.rooms}
+                  </div>
+                  {isHotelAdmin && (
+                    <button 
+                      onClick={() => {
+                        const newRooms = window.prompt("Enter new total number of rooms:", activeHotel.rooms);
+                        if (newRooms !== null && !isNaN(parseInt(newRooms))) {
+                          updateHotel(activeHotel.id, { rooms: parseInt(newRooms) });
+                        }
+                      }}
+                      className="p-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 transition"
+                      title="Update Room Count"
+                    >
+                      <Edit size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  { roomNo: '101', category: 'Executive Deluxe', status: 'Occupied', guest: 'Rahul Sharma', price: '₹5,500' },
-                  { roomNo: '102', category: 'Executive Deluxe', status: 'Available', guest: 'Vacant', price: '₹5,500' },
-                  { roomNo: '201', category: 'Royal Suite', status: 'Occupied', guest: 'Priya Mehta', price: '₹8,500' },
-                  { roomNo: '202', category: 'Royal Suite', status: 'Cleaning', guest: 'Turnover in progress', price: '₹8,500' },
-                  { roomNo: '301', category: 'Presidential Suite', status: 'Occupied', guest: 'Vikram Seth', price: '₹12,500' },
-                  { roomNo: '302', category: 'Presidential Suite', status: 'Available', guest: 'Vacant', price: '₹12,500' },
-                  { roomNo: '401', category: 'Standard Twin', status: 'Available', guest: 'Vacant', price: '₹3,800' },
-                  { roomNo: '402', category: 'Standard Twin', status: 'Maintenance', guest: 'AC Servicing', price: '₹3,800' }
-                ].map((r, i) => (
+                {generatedRooms.map((r, i) => (
                   <div key={i} className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-2 shadow-sm">
                     <div className="flex justify-between items-center">
                       <span className="font-extrabold text-sm text-slate-850 dark:text-slate-100">Suite {r.roomNo}</span>
@@ -768,6 +808,10 @@ export default function Hotels() {
 
           {workspaceTab === 'feedback' && (
             <div className="animate-fade-in"><Feedback /></div>
+          )}
+
+          {workspaceTab === 'reports' && (
+            <div className="animate-fade-in"><Reports /></div>
           )}
 
           {workspaceTab === 'settings' && (
@@ -817,7 +861,7 @@ export default function Hotels() {
                     <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
                       {hotel.type || 'Resort'}
                     </span>
-                    {isSuperAdmin && (
+                    {isHotelAdmin && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -861,20 +905,20 @@ export default function Hotels() {
                         <UserCheck size={12} className="text-teal-500 shrink-0" /> Owner:
                       </span>
                       <span className="font-bold text-teal-600 dark:text-teal-400 truncate max-w-[120px]">
-                        {hotel.ownerName || (ownersList.find(o => o.email === hotel.ownerEmail)?.name) || 'Suresh Mehta'}
+                        {hotel.ownerName || ownersList.find(o => o.email === hotel.ownerEmail)?.name || 'Unassigned'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-bold">
                         <Users2 size={12} className="text-emerald-500 shrink-0" /> Staff Roster:
                       </span>
-                      <span>{allStaffList.filter(s => s.hotelId === hotel.id).length || 4} Crew</span>
+                      <span>{allStaffList.filter(s => s.hotelId === hotel.id).length} Crew</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-bold">
                         <User size={12} className="text-teal-500 shrink-0" /> Customers:
                       </span>
-                      <span>{allBookingsList.filter(b => b.hotelId === hotel.id).length || 8} Stays</span>
+                      <span>{allBookingsList.filter(b => b.hotelId === hotel.id).length} Stays</span>
                     </div>
                   </div>
                 </div>
@@ -934,9 +978,6 @@ export default function Hotels() {
                     {o.name} ({o.email})
                   </option>
                 ))}
-                {ownersList.length === 0 && (
-                  <option value="owner1@atithisphere.com">Suresh Mehta (owner1@atithisphere.com)</option>
-                )}
               </select>
             </div>
 

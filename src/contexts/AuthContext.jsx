@@ -5,7 +5,8 @@ import {
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
   signOut, 
-  createUserWithEmailAndPassword 
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, firebaseConfig } from '../utils/firebase';
@@ -17,32 +18,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Auto-seed Admin Account
-  const seedSuperAdmin = async () => {
-    try {
-      const tempApp = initializeApp(firebaseConfig, 'TempSeedApp');
-      const tempAuth = getAuth(tempApp);
-      await createUserWithEmailAndPassword(tempAuth, 'superadmin@atithisphere.com', 'password123');
-      
-      // Store in users collection
-      await setDoc(doc(db, 'users', 'superadmin@atithisphere.com'), {
-        email: 'superadmin@atithisphere.com',
-        name: 'Super Admin',
-        role: 'Super Admin',
-        hotelId: 'all',
-        employeeId: 'EMP-SA01',
-        phone: '+91 99999 11111'
-      });
-      await tempAuth.signOut();
-      console.log('Super Admin seeded successfully in Firebase.');
-    } catch (err) {
-      console.debug('Super admin seed status:', err?.message);
-    }
-  };
-
   useEffect(() => {
-    seedSuperAdmin();
-
     const unsubscribe = onAuthStateChanged(
       auth, 
       async (firebaseUser) => {
@@ -110,6 +86,30 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const loginWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const userCred = await signInWithPopup(auth, provider);
+      const email = userCred.user.email.toLowerCase();
+      const userDocRef = doc(db, 'users', email);
+      const userDoc = await getDoc(userDocRef);
+      const userData = userDoc.exists() ? userDoc.data() : {
+        uid: userCred.user.uid,
+        email,
+        name: userCred.user.displayName || 'Guest User',
+        phone: userCred.user.phoneNumber || '',
+        role: 'Guest',
+        hotelId: '',
+        employeeId: 'GUEST'
+      };
+      if (!userDoc.exists()) await setDoc(userDocRef, userData);
+      setUser(userData);
+      return { success: true, user: userData };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
   const registerUser = async (newUser) => {
     try {
       await api.post('/api/auth/register', newUser);
@@ -123,7 +123,7 @@ export const AuthProvider = ({ children }) => {
   const registerSelf = async (newUser) => {
     try {
       await api.post('/api/auth/register', newUser);
-      await signInWithEmailAndPassword(auth, newUser.email, newUser.password || 'password123');
+      await signInWithEmailAndPassword(auth, newUser.email, newUser.password);
       return { success: true };
     } catch (err) {
       console.error('Failed self-registration:', err);
@@ -143,7 +143,7 @@ export const AuthProvider = ({ children }) => {
   const isLoggedIn = !!user;
 
   return (
-    <AuthContext.Provider value={{ user, isLoggedIn, login, logout, registerUser, registerSelf, loading }}>
+    <AuthContext.Provider value={{ user, isLoggedIn, login, loginWithGoogle, logout, registerUser, registerSelf, loading }}>
       {loading ? (
         <div className="flex min-h-screen items-center justify-center bg-slate-900 text-white">
           <div className="flex flex-col items-center gap-4">
@@ -157,4 +157,3 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
-

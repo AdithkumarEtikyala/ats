@@ -20,11 +20,8 @@ export default function Feedback() {
   const ownerHotels = useMemo(() => {
     if (user?.role === 'Super Admin') return hotels;
     if (user?.role === 'Hotel Owner') {
-      // Suresh Mehta owns hotel-1 (Mumbai) and hotel-2 (Goa)
-      if (user.email === 'owner1@atithisphere.com') {
-        return hotels.filter(h => h.id === 'hotel-1' || h.id === 'hotel-2');
-      }
-      return hotels.filter(h => h.id === user.hotelId);
+      const assignedIds = Array.isArray(user.hotelIds) ? user.hotelIds : [user.hotelId];
+      return hotels.filter((hotel) => assignedIds.includes(hotel.id));
     }
     return hotels.filter(h => h.id === user?.hotelId);
   }, [hotels, user]);

@@ -19,9 +19,9 @@ export default function Staff() {
   const [phone, setPhone] = useState('');
   const [employeeId, setEmployeeId] = useState('');
   const [role, setRole] = useState('Housekeeping');
-  const [hotelAssignment, setHotelAssignment] = useState(activeHotel?.id || 'hotel-1');
+  const [hotelAssignment, setHotelAssignment] = useState(activeHotel?.id || '');
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('password123');
+  const [password, setPassword] = useState('');
   const [regSuccess, setRegSuccess] = useState(false);
 
   useEffect(() => {
@@ -58,7 +58,9 @@ export default function Staff() {
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    const assignedId = (user.role === 'Super Admin' || user.role === 'Hotel Owner' || user.role === 'Manager') ? (activeHotel?.id || hotelAssignment) : user.hotelId;
+    const assignedId = user.role === 'Super Admin' 
+      ? (hotelAssignment || activeHotel?.id || hotels[0]?.id) 
+      : (user.hotelId || activeHotel?.id);
 
     const newUser = {
       name,
@@ -79,7 +81,7 @@ export default function Staff() {
     setPhone('');
     setEmployeeId('');
     setUsername('');
-    setPassword('password123');
+    setPassword('');
     setRegSuccess(true);
     setTimeout(() => {
       setRegSuccess(false);
@@ -101,9 +103,14 @@ export default function Staff() {
 
   const isAllowedToRegister = user?.role === 'Super Admin' || user?.role === 'Hotel Owner' || user?.role === 'Manager' || user?.role === 'Front Desk';
 
-  // Filter roster by current active hotel selection
+  // Filter roster: Super Admin sees all (or filtered by activeHotel), Manager sees only their assigned hotel
   const filteredStaff = staffList
-    .filter((s) => !activeHotel || s.hotelId === activeHotel.id)
+    .filter((s) => {
+      if (user?.role === 'Manager') {
+        return s.hotelId === user.hotelId;
+      }
+      return !activeHotel || activeHotel.id === 'all' || s.hotelId === activeHotel.id;
+    })
     .filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -279,11 +286,11 @@ export default function Staff() {
                       onChange={(e) => setRole(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none"
                     >
-                      {user?.role === 'Super Admin' && (
-                        <>
-                          <option value="Manager">Hotel Manager</option>
-                          <option value="Front Desk">Front Desk Staff</option>
-                        </>
+                      {(user?.role === 'Super Admin' || user?.role === 'Manager') && (
+                        <option value="Manager">Hotel Manager</option>
+                      )}
+                      {(user?.role === 'Super Admin' || user?.role === 'Manager') && (
+                        <option value="Front Desk">Front Desk Staff</option>
                       )}
                       <option value="Housekeeping">Housekeeping Staff</option>
                       <option value="Maintenance">Maintenance Staff</option>
@@ -306,9 +313,9 @@ export default function Staff() {
                     ) : (
                       <input
                         type="text"
-                        value={activeHotel?.name || ''}
+                        value={activeHotel?.name || hotels.find(h => h.id === user?.hotelId)?.name || 'Assigned Hotel'}
                         disabled
-                        className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-850 rounded-xl opacity-60"
+                        className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-850 rounded-xl opacity-60 font-semibold"
                       />
                     )}
                   </div>

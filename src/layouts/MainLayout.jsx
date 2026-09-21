@@ -43,7 +43,6 @@ export default function MainLayout({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [hotelsTreeExpanded, setHotelsTreeExpanded] = useState(true);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [notificationOpen, setNotificationOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
   const navigate = useNavigate();
@@ -58,12 +57,9 @@ export default function MainLayout({ children }) {
   };
 
   const isItemVisibleForRole = (name, role) => {
-    if (role === 'Super Admin') return true;
+    if (role === 'Super Admin' || role === 'Manager') return true;
     if (role === 'Hotel Owner') {
       return ['Dashboard', 'Bookings', 'Guest Requests', 'Staff Management', 'Reports & Analytics', 'Feedback Management', 'Hotels', 'Settings'].includes(name);
-    }
-    if (role === 'Manager') {
-      return ['Dashboard', 'Bookings', 'Guest Requests', 'Housekeeping', 'Maintenance', 'Food & Beverage', 'Staff Management', 'Feedback Management', 'Settings'].includes(name);
     }
     if (role === 'Front Desk') {
       return ['Dashboard', 'Bookings', 'Guest Requests', 'Housekeeping', 'Maintenance', 'Food & Beverage', 'Staff Management', 'Feedback Management', 'Settings'].includes(name);
@@ -92,7 +88,7 @@ export default function MainLayout({ children }) {
         icon: Building2, 
         visible: isItemVisibleForRole('Hotels', role),
         children: [
-          { name: 'Owner', path: '/hotel-owners', icon: UserCheck, visible: role === 'Super Admin' },
+          { name: 'Owner', path: '/hotel-owners', icon: UserCheck, visible: ['Super Admin', 'Manager'].includes(role) },
           { name: 'Staff', path: '/staff', icon: Users2, visible: isItemVisibleForRole('Staff Management', role) },
           { name: 'Customers', path: '/bookings?tab=guests', icon: User, visible: true },
           { name: 'Hotel Operations', path: '/hotels', icon: Settings, visible: true }
@@ -164,33 +160,6 @@ export default function MainLayout({ children }) {
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-[9px] font-bold text-emerald-450 border border-emerald-500/20">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             WA ONLINE
-          </div>
-
-          {/* Notifications Bell */}
-          <div className="relative">
-            <button
-              onClick={() => setNotificationOpen(!notificationOpen)}
-              className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-950/50 relative"
-            >
-              <Bell size={16} />
-              <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-red-500"></span>
-            </button>
-
-            {notificationOpen && (
-              <div className="absolute right-0 mt-2.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-3 z-50 text-left text-xs space-y-2 animate-fade-in">
-                <h4 className="font-bold border-b dark:border-slate-800 pb-1.5">Notifications Ledger</h4>
-                <div className="space-y-2 text-[10px]">
-                  <div className="p-1.5 bg-slate-50 dark:bg-slate-950/50 rounded-lg">
-                    <span className="font-bold block">🚨 Ticket SLA Alert</span>
-                    <span className="text-slate-500">AC Leaking Water ticket is approaching breach.</span>
-                  </div>
-                  <div className="p-1.5 bg-slate-50 dark:bg-slate-950/50 rounded-lg">
-                    <span className="font-bold block">💬 Guest Message Received</span>
-                    <span className="text-slate-500">New WhatsApp request from Arjun Mehta.</span>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Theme Toggle Button */}

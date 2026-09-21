@@ -122,14 +122,40 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
+const getRequester = async (req) => {
+  const requester = await db.collection('users').doc(req.user.email.toLowerCase()).get();
+  return requester.exists ? requester.data() : null;
+};
+
+const canManageHotel = (requester, hotelId) =>
+  requester?.role === 'Super Admin' ||
+  (requester?.role === 'Manager' && requester.hotelId === hotelId);
+
+const requireHotelAccess = async (req, res, hotelId) => {
+  const requester = await getRequester(req);
+  if (requester?.role === 'Guest') {
+    const bookings = await db.collection('bookings')
+      .where('hotelId', '==', hotelId)
+      .where('guestPhone', '==', requester.phone || '')
+      .limit(1)
+      .get();
+    if (!bookings.empty) return requester;
+  }
+  if (!canManageHotel(requester, hotelId)) {
+    res.status(403).json({ error: 'Forbidden: You can only manage your assigned hotel.' });
+    return null;
+  }
+  return requester;
+};
+
 // --- AUTH ENDPOINTS ---
 
 // Register Guest or Staff Account
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, name, phone, role, hotelId, employeeId } = req.body;
   
-  if (!email || !name || !role) {
-    return res.status(400).json({ error: 'Missing required parameters: email, name, role' });
+  if (!email || !password || !name || !role) {
+    return res.status(400).json({ error: 'Missing required parameters: email, password, name, role' });
   }
 
   // Security Check: Creating administrative/staff accounts requires authorization
@@ -143,8 +169,12 @@ app.post('/api/auth/register', async (req, res) => {
       const decodedToken = await admin.auth().verifyIdToken(token);
       
       const requestorDoc = await db.collection('users').doc(decodedToken.email.toLowerCase()).get();
-      if (!requestorDoc.exists || !['Super Admin', 'Hotel Owner', 'Manager', 'Front Desk'].includes(requestorDoc.data().role)) {
+      const requestor = requestorDoc.exists ? requestorDoc.data() : null;
+      if (!requestor || !['Super Admin', 'Manager'].includes(requestor.role)) {
         return res.status(403).json({ error: 'Forbidden: Insufficient privileges to register staff' });
+      }
+      if (requestor.role === 'Manager' && (hotelId !== requestor.hotelId || role === 'Super Admin')) {
+        return res.status(403).json({ error: 'Forbidden: Managers can only register staff for their assigned hotel.' });
       }
     } catch (err) {
       console.warn('Staff registration admin token verification failed:', err.message);
@@ -156,7 +186,7 @@ app.post('/api/auth/register', async (req, res) => {
     // 1. Create auth user in Firebase Auth using Admin SDK
     const userRecord = await admin.auth().createUser({
       email,
-      password: password || 'password123',
+      password,
       displayName: name
     });
 
@@ -218,6 +248,10 @@ app.post('/api/auth/login-metadata', async (req, res) => {
 // --- HOTEL ENDPOINTS ---
 
 app.post('/api/hotels', authMiddleware, async (req, res) => {
+  const requester = await getRequester(req);
+  if (requester?.role !== 'Super Admin') {
+    return res.status(403).json({ error: 'Forbidden: Only Super Admin can register a new hotel.' });
+  }
   const hotel = req.body;
   const hotelId = `hotel-${Math.floor(Math.random() * 900) + 100}`;
   
@@ -236,6 +270,7 @@ app.post('/api/hotels', authMiddleware, async (req, res) => {
 
 app.put('/api/hotels/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
+  if (!await requireHotelAccess(req, res, id)) return;
   const updatedFields = req.body;
   try {
     await db.collection('hotels').doc(id).update(updatedFields);
@@ -247,6 +282,7 @@ app.put('/api/hotels/:id', authMiddleware, async (req, res) => {
 
 app.delete('/api/hotels/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
+  if (!await requireHotelAccess(req, res, id)) return;
   try {
     // 1. Delete the hotel property itself
     await db.collection('hotels').doc(id).delete();
@@ -321,11 +357,19 @@ app.delete('/api/hotels/:id', authMiddleware, async (req, res) => {
 
 app.post('/api/bookings', authMiddleware, async (req, res) => {
   const booking = req.body;
+  const requester = await getRequester(req);
+  const isOwnGuestBooking = requester?.role === 'Guest' && requester.phone && requester.phone === booking.guestPhone;
+  if (!isOwnGuestBooking && !await requireHotelAccess(req, res, booking.hotelId)) return;
   const bookingId = booking.id || `BK-${Math.floor(Math.random() * 9000) + 1000}`;
   try {
     const newBooking = {
       id: bookingId,
       ...booking,
+      ...(isOwnGuestBooking ? {
+        guestName: requester.name,
+        guestPhone: requester.phone,
+        guestEmail: requester.email
+      } : {}),
       createdTime: new Date().toISOString()
     };
     await db.collection('bookings').doc(bookingId).set(newBooking);
@@ -339,7 +383,11 @@ app.put('/api/bookings/:id/status', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   try {
-    await db.collection('bookings').doc(id).update({ status });
+    const bookingRef = db.collection('bookings').doc(id);
+    const booking = await bookingRef.get();
+    if (!booking.exists) return res.status(404).json({ error: 'Booking not found.' });
+    if (!await requireHotelAccess(req, res, booking.data().hotelId)) return;
+    await bookingRef.update({ status });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -350,6 +398,7 @@ app.put('/api/bookings/:id/status', authMiddleware, async (req, res) => {
 
 app.post('/api/tickets', authMiddleware, async (req, res) => {
   const ticket = req.body;
+  if (!await requireHotelAccess(req, res, ticket.hotelId)) return;
   const ticketId = `tkt-${Math.floor(Math.random() * 9000) + 1000}`;
   try {
     const newTkt = {
@@ -378,6 +427,7 @@ app.put('/api/tickets/:id/status', authMiddleware, async (req, res) => {
     }
 
     const tkt = docSnap.data();
+    if (!await requireHotelAccess(req, res, tkt.hotelId)) return;
     let updateFields = { status: newStatus };
 
     if (newStatus === 'Completed' || newStatus === 'Closed') {
@@ -409,6 +459,9 @@ app.put('/api/tickets/:id/assign', authMiddleware, async (req, res) => {
   const { staffName } = req.body;
   try {
     const docRef = db.collection('tickets').doc(id);
+    const ticket = await docRef.get();
+    if (!ticket.exists) return res.status(404).json({ error: 'Ticket not found.' });
+    if (!await requireHotelAccess(req, res, ticket.data().hotelId)) return;
     await docRef.update({
       assignedStaff: staffName,
       status: 'Accepted'
@@ -431,11 +484,12 @@ app.put('/api/tickets/:id/assign', authMiddleware, async (req, res) => {
 
 // --- CHATS & WHATSAPP ENDPOINTS ---
 
-app.post('/api/chats/messages', async (req, res) => {
+app.post('/api/chats/messages', authMiddleware, async (req, res) => {
   const { guestPhone, text, sender, guestName, hotelId } = req.body;
-  if (!guestPhone || !text) {
+  if (!guestPhone || !text || !hotelId) {
     return res.status(400).json({ error: 'Missing parameters: guestPhone, text' });
   }
+  if (!await requireHotelAccess(req, res, hotelId)) return;
 
   try {
     const chatDocRef = db.collection('chats').doc(guestPhone);
@@ -456,7 +510,7 @@ app.post('/api/chats/messages', async (req, res) => {
       await chatDocRef.set({
         guestPhone,
         guestName: guestName || 'Guest User',
-        hotelId: hotelId || 'hotel-1',
+        hotelId,
         messages: [newMessage]
       });
     }
@@ -479,10 +533,10 @@ app.post('/api/chats/messages', async (req, res) => {
       const ticketId = `tkt-${Math.floor(Math.random() * 9000) + 1000}`;
       const newTkt = {
         id: ticketId,
-        hotelId: hotelId || 'hotel-1',
+        hotelId,
         guestName: guestName || 'Guest User',
         guestPhone: guestPhone,
-        roomNumber: '305', // Fallback room number
+        roomNumber: '',
         requestType: text,
         department: dept,
         priority: priority,
@@ -517,6 +571,7 @@ app.post('/api/chats/messages', async (req, res) => {
 
 app.post('/api/feedback/review', authMiddleware, async (req, res) => {
   const review = req.body;
+  if (!await requireHotelAccess(req, res, review.hotelId)) return;
   const reviewId = `rev-${Math.floor(Math.random() * 9000) + 1000}`;
   const dateStr = new Date().toISOString().split('T')[0];
   
@@ -591,6 +646,10 @@ const removeOwnerHandler = async (req, res) => {
   const cleanEmail = emailParam.toLowerCase();
 
   try {
+    const targetUser = await db.collection('users').doc(cleanEmail).get();
+    const targetHotelId = targetUser.exists ? targetUser.data().hotelId : null;
+    if (!await requireHotelAccess(req, res, targetHotelId)) return;
+
     // 1. Delete from users collection
     await db.collection('users').doc(cleanEmail).delete().catch(() => {});
 
@@ -637,6 +696,10 @@ app.delete('/api/staff/:id', authMiddleware, async (req, res) => {
     // Fetch staff doc first to find email if missing
     const staffDocRef = db.collection('staff').doc(id);
     const staffSnap = await staffDocRef.get();
+    if (!staffSnap.exists) {
+      return res.status(404).json({ error: 'Staff member not found.' });
+    }
+    if (!await requireHotelAccess(req, res, staffSnap.data().hotelId)) return;
     if (staffSnap.exists) {
       const data = staffSnap.data();
       if (!staffEmail && data.email) {
@@ -683,7 +746,13 @@ app.delete('/api/tickets/:id', authMiddleware, async (req, res) => {
 app.delete('/api/bookings/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   try {
-    await db.collection('bookings').doc(id).delete();
+    const bookingRef = db.collection('bookings').doc(id);
+    const booking = await bookingRef.get();
+    if (!booking.exists) return res.status(404).json({ error: 'Booking not found.' });
+    const requester = await getRequester(req);
+    const isOwnGuestBooking = requester?.role === 'Guest' && requester.phone && requester.phone === booking.data().guestPhone;
+    if (!isOwnGuestBooking && !await requireHotelAccess(req, res, booking.data().hotelId)) return;
+    await bookingRef.delete();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

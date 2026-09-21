@@ -2,8 +2,9 @@ import React, { useState, useMemo, useContext, useEffect } from 'react';
 import { FeedbackContext } from '../contexts/FeedbackContext';
 import { AuthContext } from '../contexts/AuthContext';
 import { TicketContext } from '../contexts/TicketContext';
-import { collection, onSnapshot, query, where, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
+import api from '../utils/api';
 import {
   Sparkles,
   Building,
@@ -66,13 +67,13 @@ export default function GuestPortal() {
   const [guestAppFeedbackComment, setGuestAppFeedbackComment] = useState('');
   
   // Custom preferences states
-  const [prefRoomType, setPrefRoomType] = useState('Deluxe Suite');
-  const [prefBedType, setPrefBedType] = useState('King Bed');
-  const [prefSmoking, setPrefSmoking] = useState('Non-Smoking');
-  const [prefFloor, setPrefFloor] = useState('Upper Floor');
-  const [prefCheckin, setPrefCheckin] = useState('12:00 PM');
-  const [prefBudget, setPrefBudget] = useState('5000-8000');
-  const [prefAmenities, setPrefAmenities] = useState(['WiFi', 'Swimming Pool', 'Spa']);
+  const [prefRoomType, setPrefRoomType] = useState('');
+  const [prefBedType, setPrefBedType] = useState('');
+  const [prefSmoking, setPrefSmoking] = useState('');
+  const [prefFloor, setPrefFloor] = useState('');
+  const [prefCheckin, setPrefCheckin] = useState('');
+  const [prefBudget, setPrefBudget] = useState('');
+  const [prefAmenities, setPrefAmenities] = useState([]);
 
   // Review Modal State
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -97,10 +98,10 @@ export default function GuestPortal() {
   
   // Search Form Parameters
   const [searchCity, setSearchCity] = useState('');
-  const [checkInDate, setCheckInDate] = useState('2026-07-10');
-  const [checkOutDate, setCheckOutDate] = useState('2026-07-14');
-  const [guestCount, setGuestCount] = useState(2);
-  const [selectedRoomType, setSelectedRoomType] = useState('Deluxe Suite');
+  const [checkInDate, setCheckInDate] = useState('');
+  const [checkOutDate, setCheckOutDate] = useState('');
+  const [guestCount, setGuestCount] = useState(1);
+  const [selectedRoomType, setSelectedRoomType] = useState('');
 
   // Breadcrumbs track
   const [breadcrumbs, setBreadcrumbs] = useState(['Explore', 'Search Stays']);
@@ -108,27 +109,26 @@ export default function GuestPortal() {
   // Dedicated Hotel Details View State
   const [viewingHotelDetail, setViewingHotelDetail] = useState(null);
 
-  // Modals & Notifications
-  const [notificationOpen, setNotificationOpen] = useState(false);
+  // Modal state
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
   // Large Booking Engine Modal States
   const [bookingFormModalOpen, setBookingFormModalOpen] = useState(false);
   const [bookingSuccessModalOpen, setBookingSuccessModalOpen] = useState(false);
-  const [bkGuestName, setBkGuestName] = useState('Arjun Mehta');
-  const [bkGuestMobile, setBkGuestMobile] = useState('919005499821');
-  const [bkGuestEmail, setBkGuestEmail] = useState('arjun@atithisphere.com');
+  const [bkGuestName, setBkGuestName] = useState('');
+  const [bkGuestMobile, setBkGuestMobile] = useState('');
+  const [bkGuestEmail, setBkGuestEmail] = useState('');
   const [bkRoomsCount, setBkRoomsCount] = useState(1);
   const [bkAirportPickup, setBkAirportPickup] = useState(false);
   const [bkBreakfastIncluded, setBkBreakfastIncluded] = useState(true);
   const [bkSpecialRequests, setBkSpecialRequests] = useState('');
+  const [bookingError, setBookingError] = useState('');
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
 
   // WhatsApp Floating chat
   const [waChatOpen, setWaChatOpen] = useState(false);
   const [chatText, setChatText] = useState('');
-  const [chatMessages, setChatMessages] = useState([
-    { id: '1', sender: 'bot', text: 'Welcome! I am your AtithiSphere assistant. How can I help you with your booking or stay today?', time: '10:00 AM' }
-  ]);
+  const [chatMessages, setChatMessages] = useState([]);
 
   const [activeBooking, setActiveBooking] = useState(null);
   const [stayHotel, setStayHotel] = useState(null);
@@ -143,13 +143,13 @@ export default function GuestPortal() {
         const data = doc.data();
         return {
           id: doc.id,
-          hotelName: data.hotelName || 'AtithiSphere Stay',
-          city: data.city || 'Mumbai',
-          room: data.roomNumber ? `${data.roomType || 'Suite'} ${data.roomNumber}` : 'Pending Assignment',
-          checkIn: data.checkIn || '2026-07-10',
-          checkOut: data.checkOut || '2026-07-14',
-          guests: data.guests || 2,
-          totalPrice: data.amount || 30000,
+          hotelName: data.hotelName || 'Hotel booking',
+          city: data.city || '',
+          room: data.roomNumber ? `${data.roomType || 'Suite'} ${data.roomNumber}` : (data.roomType || 'Pending assignment'),
+          checkIn: data.checkIn || 'Not set',
+          checkOut: data.checkOut || 'Not set',
+          guests: data.guests || 0,
+          totalPrice: Number(data.amount) || 0,
           status: data.status === 'checked-in' ? 'Confirmed Stay' : data.status,
           upcoming: data.status !== 'checkout' && data.status !== 'completed'
         };
@@ -236,82 +236,35 @@ export default function GuestPortal() {
   const [ratingVal, setRatingVal] = useState(5);
   const [feedbackText, setFeedbackText] = useState('');
 
-  // Mock Hotels
-  const guestHotels = [
-    {
-      id: 'h-1',
-      name: 'Grand Palace Hotel & Spa',
-      city: 'Mumbai',
-      price: 7500,
-      rating: 4.8,
-      reviews: 142,
-      img: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80',
-      gallery: [
-        'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80',
-        'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=400&q=80',
-        'https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?auto=format&fit=crop&w=400&q=80'
-      ],
-      description: 'Experience world-class luxury at the heart of Mumbai. Boasting sweeping sea views, Atithi Grand Palace offers state of the art amenities, clean rooms, and signature dining venues.',
-      amenities: ['Free WiFi', 'Infinity Pool', 'Luxury Spa', 'Dining Room', 'Free Parking', 'Fitness Center', 'Room Service', 'Laundry Service'],
-      attractions: ['Gateway of India (1.2 km)', 'Marine Drive (3.5 km)', 'Colaba Causeway (2.0 km)'],
-      restaurants: ['Bayview Bistro', 'Spice Symphony Fine Dining'],
-      weather: '28°C • Mostly Sunny',
-      roomTypes: [
-        { name: 'Deluxe Suite', price: 7500, available: 4 },
-        { name: 'Executive Ocean Suite', price: 12000, available: 2 },
-        { name: 'Presidential Penthouse', price: 25000, available: 1 }
-      ]
-    },
-    {
-      id: 'h-2',
-      name: 'Goa Coastal Palms Resort',
-      city: 'Goa',
-      price: 6200,
-      rating: 4.7,
-      reviews: 98,
-      img: 'https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=600&q=80',
-      gallery: [
-        'https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=600&q=80',
-        'https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=400&q=80'
-      ],
-      description: 'Escape to a tropical beachside sanctuary. Indulge in custom pool-side drinks, white sand beach access, and live music dinners under palm trees.',
-      amenities: ['Beachfront', 'Free WiFi', 'Bar & Lounge', 'Outdoor Pool', 'Free Parking', 'Fitness Center', 'Room Service', 'Laundry Service'],
-      attractions: ['Baga Beach (0.5 km)', 'Fort Aguada (4.2 km)', 'Anjuna Market (2.8 km)'],
-      restaurants: ['Palms Beach Grill', 'Tiki Lounge'],
-      weather: '30°C • Breezy',
-      roomTypes: [
-        { name: 'Palms Queen Cabin', price: 6200, available: 3 },
-        { name: 'Beachfront Suite', price: 9500, available: 2 }
-      ]
-    },
-    {
-      id: 'h-3',
-      name: 'The Atithi Regency Suites',
-      city: 'Pune',
-      price: 4800,
-      rating: 4.5,
-      reviews: 64,
-      img: 'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=600&q=80',
-      gallery: [
-        'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=600&q=80'
-      ],
-      description: 'Strategically located in Pune’s tech corridor. Features spacious workspaces, high-speed WiFi, conference halls, and premium bed comforts.',
-      amenities: ['Free WiFi', 'Gym Center', 'Conference Hall', 'Valet Parking', 'Dining Room', 'Room Service'],
-      attractions: ['Shaniwar Wada (1.5 km)', 'Aga Khan Palace (5.0 km)', 'Osho Ashram (3.2 km)'],
-      restaurants: ['Regency Cafe', 'The Brew Lounge'],
-      weather: '25°C • Pleasant',
-      roomTypes: [
-        { name: 'Business Comfort', price: 4800, available: 6 },
-        { name: 'Executive Suite', price: 7200, available: 2 }
-      ]
-    }
-  ];
+  const [guestHotels, setGuestHotels] = useState([]);
+
+  useEffect(() => onSnapshot(collection(db, 'hotels'), (snapshot) => {
+    setGuestHotels(snapshot.docs.map((hotelDoc) => {
+      const hotel = hotelDoc.data();
+        const basePrice = Number(hotel.price || hotel.basePrice || 0);
+        const roomTypes = Array.isArray(hotel.roomTypes) && hotel.roomTypes.length > 0
+          ? hotel.roomTypes
+          : [{ name: 'Standard Room', price: basePrice, available: Number(hotel.rooms || 0) }];
+        return {
+          id: hotelDoc.id,
+          ...hotel,
+          price: basePrice,
+        rating: Number(hotel.rating || 0),
+        reviews: Number(hotel.reviews || hotel.reviewCount || 0),
+        gallery: hotel.gallery || (hotel.img ? [hotel.img] : []),
+        amenities: hotel.amenities || [],
+        attractions: hotel.attractions || [],
+        restaurants: hotel.restaurants || (hotel.restaurantName ? [hotel.restaurantName] : []),
+          roomTypes
+      };
+    }));
+  }), []);
 
   const filteredStays = useMemo(() => {
     return guestHotels.filter(h => {
       return h.name.toLowerCase().includes(searchCity.toLowerCase()) || h.city.toLowerCase().includes(searchCity.toLowerCase());
     });
-  }, [searchCity]);
+  }, [guestHotels, searchCity]);
 
   const handleTabChange = (tab, label) => {
     setActiveTab(tab);
@@ -329,6 +282,61 @@ export default function GuestPortal() {
     setBreadcrumbs(['Explore Stays', 'Search Stays']);
   };
 
+  const openBookingForm = () => {
+    setBkGuestName(user?.name || '');
+    setBkGuestMobile(user?.phone || '');
+    setBkGuestEmail(user?.email || '');
+    setSelectedRoomType(viewingHotelDetail?.roomTypes?.[0]?.name || '');
+    setBookingError('');
+    setBookingFormModalOpen(true);
+  };
+
+  const handleBookingSubmit = async (event) => {
+    event.preventDefault();
+    if (!user || !viewingHotelDetail || !bkGuestName || !bkGuestMobile || !bkGuestEmail || !checkInDate || !checkOutDate || !selectedRoomType) return;
+    setBookingSubmitting(true);
+    setBookingError('');
+    try {
+      const room = viewingHotelDetail.roomTypes.find((item) => item.name === selectedRoomType) || viewingHotelDetail.roomTypes[0];
+      const nightlyRate = Number(room?.price || viewingHotelDetail.price || 0);
+      await api.post('/api/bookings', {
+        hotelId: viewingHotelDetail.id,
+        hotelName: viewingHotelDetail.name,
+        city: viewingHotelDetail.city || '',
+        guestName: bkGuestName,
+        guestPhone: bkGuestMobile,
+        guestEmail: bkGuestEmail,
+        roomNumber: '',
+        roomType: selectedRoomType,
+        roomsCount: bkRoomsCount,
+        guests: guestCount,
+        checkIn: checkInDate,
+        checkOut: checkOutDate,
+        airportPickup: bkAirportPickup,
+        breakfastIncluded: bkBreakfastIncluded,
+        specialRequests: bkSpecialRequests,
+        status: 'requested',
+        amount: Math.round(nightlyRate * calculatedNights * bkRoomsCount * 1.18)
+      });
+      setBookingFormModalOpen(false);
+      setBookingSuccessModalOpen(true);
+      setActiveTab('my-bookings');
+    } catch (error) {
+      setBookingError(error.response?.data?.error || 'Could not submit your booking request. Please try again.');
+    } finally {
+      setBookingSubmitting(false);
+    }
+  };
+
+  const cancelBooking = async (bookingId) => {
+    if (!window.confirm('Cancel this booking request?')) return;
+    try {
+      await api.delete(`/api/bookings/${bookingId}`);
+    } catch (error) {
+      alert(error.response?.data?.error || 'Could not cancel this booking.');
+    }
+  };
+
   const toggleWishlist = (id) => {
     setWishlist(prev =>
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
@@ -337,9 +345,10 @@ export default function GuestPortal() {
 
   const handleReviewSubmit = (e) => {
     e.preventDefault();
+    if (!viewingHotelDetail) return;
     submitHotelReview({
-      hotelId: viewingHotelDetail.id === 'h-1' ? 'hotel-1' : viewingHotelDetail.id === 'h-2' ? 'hotel-2' : 'hotel-3',
-      guestName: 'Arjun Mehta',
+      hotelId: viewingHotelDetail.id,
+      guestName: user?.name || 'Guest',
       rating: reviewRating,
       title: reviewTitle,
       comment: reviewComment,
@@ -364,11 +373,15 @@ export default function GuestPortal() {
     setReviewModalOpen(false);
   };
 
-  const triggerWhatsAppDirect = (hotelName = 'Grand Palace Hotel & Spa', customMsgType = '') => {
-    const hotelNumber = '919005499821';
-    const guestName = 'Arjun Mehta';
-    const bookingId = 'BK-5011';
-    const roomNumber = 'Deluxe Suite 305';
+  const triggerWhatsAppDirect = (hotelName = stayHotel?.name || viewingHotelDetail?.name || 'Hotel', customMsgType = '') => {
+    const hotelNumber = (stayHotel?.waNumber || viewingHotelDetail?.waNumber || '').replace(/\D/g, '');
+    if (!hotelNumber) {
+      setWaChatOpen(true);
+      return;
+    }
+    const guestName = user?.name || 'Guest';
+    const bookingId = activeBooking?.id || 'Pending';
+    const roomNumber = activeBooking?.roomNumber || 'Pending assignment';
 
     let customHeader = 'I would like assistance regarding my stay.';
     if (customMsgType) {
@@ -392,7 +405,7 @@ Please assist me.`;
 
   const handleSendWA = async (e) => {
     e.preventDefault();
-    if (!chatText.trim() || !user) return;
+    if (!chatText.trim() || !user || !activeBooking?.hotelId) return;
     const text = chatText;
     setChatText('');
     await sendChatMessage(
@@ -400,18 +413,18 @@ Please assist me.`;
       text, 
       'guest', 
       user.name, 
-      activeBooking?.hotelId || 'hotel-1'
+      activeBooking.hotelId
     );
   };
 
   const handleQuickConcierge = async (itemType, customIcon = Coffee) => {
-    if (!user) return;
+    if (!user || !activeBooking?.hotelId) return;
     const dept = ['Fresh Linen', 'Room Cleaning'].includes(itemType) ? 'Housekeeping' : 'Food & Beverage';
     await createTicket({
-      hotelId: activeBooking?.hotelId || 'hotel-1',
+      hotelId: activeBooking.hotelId,
       guestName: user.name,
       guestPhone: user.phone,
-      roomNumber: activeBooking?.roomNumber || '305',
+      roomNumber: activeBooking.roomNumber || '',
       requestType: itemType,
       department: dept,
       priority: 'Medium'
@@ -423,12 +436,12 @@ Please assist me.`;
 
   const handleReportProblem = async (e) => {
     e.preventDefault();
-    if (!problemDescription.trim() || !user) return;
+    if (!problemDescription.trim() || !user || !activeBooking?.hotelId) return;
     await createTicket({
-      hotelId: activeBooking?.hotelId || 'hotel-1',
+      hotelId: activeBooking.hotelId,
       guestName: user.name,
       guestPhone: user.phone,
-      roomNumber: activeBooking?.roomNumber || '305',
+      roomNumber: activeBooking.roomNumber || '',
       requestType: problemDescription,
       department: problemCategory,
       priority: 'High'
@@ -453,7 +466,7 @@ Please assist me.`;
   const activeCalculatedPrice = useMemo(() => {
     if (!viewingHotelDetail) return 0;
     const matchedRoom = viewingHotelDetail.roomTypes.find(r => r.name === selectedRoomType) || viewingHotelDetail.roomTypes[0];
-    return matchedRoom.price * calculatedNights * guestCount;
+    return Number(matchedRoom?.price || 0) * calculatedNights * guestCount;
   }, [viewingHotelDetail, selectedRoomType, calculatedNights, guestCount]);
 
   return (
@@ -490,28 +503,6 @@ Please assist me.`;
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Notifications bell */}
-          <div className="relative">
-            <button
-              onClick={() => setNotificationOpen(!notificationOpen)}
-              className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-950 relative theme-fg"
-            >
-              <Bell size={16} />
-              <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-red-500"></span>
-            </button>
-            {notificationOpen && (
-              <div className="absolute right-0 mt-2.5 w-64 rounded-2xl shadow-xl p-3 z-50 text-left text-xs space-y-2 animate-fade-in theme-card border">
-                <h4 className="font-extrabold border-b pb-1.5">Stay Updates</h4>
-                <div className="space-y-2 text-[10px]">
-                  <div className="p-1.5 bg-slate-50 dark:bg-slate-950/50 rounded-lg">
-                    <span className="font-bold block text-teal-450">✅ Stay Confirmed</span>
-                    <span className="theme-muted">Your stay at Grand Palace Hotel & Spa is booked for July 10!</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Theme switcher */}
           <button
             onClick={() => setDarkMode(!darkMode)}
@@ -527,13 +518,13 @@ Please assist me.`;
               className="flex items-center gap-2 hover:opacity-85 focus:outline-none"
             >
               <div className="h-8 w-8 rounded-full bg-teal-500/10 text-teal-500 flex items-center justify-center font-bold text-xs">
-                A
+                {user?.name?.charAt(0)?.toUpperCase() || 'G'}
               </div>
             </button>
             {profileDropdownOpen && (
               <div className="absolute right-0 mt-2.5 w-48 rounded-2xl shadow-xl p-2 z-50 text-left text-xs space-y-1 animate-fade-in theme-card border">
                 <div className="px-3 py-2 border-b">
-                  <span className="font-bold block">Arjun Mehta</span>
+                  <span className="font-bold block">{user?.name || 'Guest'}</span>
                   <span className="text-[9px] font-extrabold uppercase theme-muted">Guest Session</span>
                 </div>
                 <button
@@ -543,7 +534,7 @@ Please assist me.`;
                   My Profile
                 </button>
                 <button
-                  onClick={() => { alert('Logged out.'); window.location.href = '/'; }}
+                  onClick={async () => { await logout(); window.location.href = '/'; }}
                   className="w-full text-left px-3 py-2 hover:bg-red-500/10 text-red-500 rounded-lg font-bold block transition"
                 >
                   Log Out
@@ -766,7 +757,7 @@ Please assist me.`;
                   <h4 className="text-[10px] font-extrabold uppercase tracking-wider border-b pb-1.5 theme-border theme-muted">Stay Booking Engine</h4>
                   <p className="text-[10.5px] theme-muted font-semibold">Reserve your stay in just a few steps.</p>
                   <button
-                    onClick={() => setBookingFormModalOpen(true)}
+                    onClick={openBookingForm}
                     className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl shadow-lg transition mt-2"
                   >
                     BOOK NOW
@@ -950,11 +941,7 @@ Please assist me.`;
                             Modify Booking
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm('Are you sure you want to cancel this booking?')) {
-                                setMyBookingsList(prev => prev.filter(b => b.id !== booking.id));
-                              }
-                            }}
+                            onClick={() => cancelBooking(booking.id)}
                             className="px-3.5 py-1.5 bg-red-500/10 border border-red-500/20 text-red-500 font-bold text-[10px] rounded-xl hover:bg-red-500/20 transition"
                           >
                             Cancel Booking
@@ -1150,9 +1137,9 @@ Please assist me.`;
                   <div className="border rounded-3xl p-5 shadow-sm space-y-4 theme-card">
                     <h3 className="text-[10px] font-bold uppercase tracking-wider border-b pb-2 theme-border theme-muted">Profile Overview</h3>
                     <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 rounded-full bg-teal-500/10 text-teal-500 flex items-center justify-center font-bold text-sm">A</div>
+                      <div className="h-12 w-12 rounded-full bg-teal-500/10 text-teal-500 flex items-center justify-center font-bold text-sm">{user?.name?.charAt(0)?.toUpperCase() || 'G'}</div>
                       <div>
-                        <h4 className="font-extrabold text-xs">Arjun Mehta</h4>
+                        <h4 className="font-extrabold text-xs">{user?.name || 'Guest'}</h4>
                         <span className="text-[9px] font-bold uppercase font-mono theme-muted">Active stay guest</span>
                       </div>
                     </div>
@@ -1280,15 +1267,15 @@ Please assist me.`;
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                               <label className="block theme-muted mb-1">Full Name</label>
-                              <input type="text" defaultValue="Arjun Mehta" className="w-full px-3 py-1.5 rounded-xl font-bold theme-input border outline-none" />
+                              <input type="text" value={user?.name || ''} readOnly className="w-full px-3 py-1.5 rounded-xl font-bold theme-input border outline-none" />
                             </div>
                             <div>
                               <label className="block theme-muted mb-1">Mobile Number</label>
-                              <input type="text" defaultValue="+91 91900 54998" className="w-full px-3 py-1.5 rounded-xl font-bold theme-input border outline-none" />
+                              <input type="text" value={user?.phone || ''} readOnly className="w-full px-3 py-1.5 rounded-xl font-bold theme-input border outline-none" />
                             </div>
                             <div>
                               <label className="block theme-muted mb-1">Email Address</label>
-                              <input type="email" defaultValue="arjun@atithisphere.com" className="w-full px-3 py-1.5 rounded-xl font-bold theme-input border outline-none" />
+                              <input type="email" value={user?.email || ''} readOnly className="w-full px-3 py-1.5 rounded-xl font-bold theme-input border outline-none" />
                             </div>
                             <div>
                               <label className="block theme-muted mb-1">Nationality</label>
@@ -1476,7 +1463,7 @@ Please assist me.`;
                               e.preventDefault();
                               if (!guestAppFeedbackComment.trim()) return;
                               submitAppFeedback({
-                                userName: 'Arjun Mehta',
+                                userName: user?.name || 'Guest',
                                 role: 'Guest',
                                 type: guestAppFeedbackType,
                                 comment: guestAppFeedbackComment
@@ -1562,13 +1549,10 @@ Please assist me.`;
             </div>
 
             <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setBookingFormModalOpen(false);
-                setBookingSuccessModalOpen(true);
-              }}
+              onSubmit={handleBookingSubmit}
               className="space-y-6 text-slate-805 dark:text-slate-250"
             >
+              {bookingError && <p className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs font-bold text-red-500">{bookingError}</p>}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 
                 {/* Guest Information */}
@@ -1740,9 +1724,10 @@ Please assist me.`;
                 </button>
                 <button
                   type="submit"
+                  disabled={bookingSubmitting}
                   className="px-6 py-2 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl shadow-lg transition"
                 >
-                  Confirm & Submit Request
+                  {bookingSubmitting ? 'Submitting…' : 'Confirm & Submit Request'}
                 </button>
               </div>
             </form>
@@ -1767,7 +1752,7 @@ Please assist me.`;
               <button
                 onClick={() => {
                   setBookingSuccessModalOpen(false);
-                  triggerWhatsAppDirect(viewingHotelDetail?.name || 'Grand Palace Hotel', 'Booking Stay Reservation Enquiry');
+                  triggerWhatsAppDirect(viewingHotelDetail?.name, 'Booking Stay Reservation Enquiry');
                 }}
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition"
               >

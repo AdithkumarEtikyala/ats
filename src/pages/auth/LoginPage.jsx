@@ -4,11 +4,11 @@ import { AuthContext } from '../../contexts/AuthContext';
 import { Mail, Lock, Eye, EyeOff, ArrowLeft, ShieldAlert } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login } = useContext(AuthContext);
+  const { login, loginWithGoogle } = useContext(AuthContext);
 
   // Input states
-  const [email, setEmail] = useState('superadmin@atithisphere.com');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -29,6 +29,13 @@ export default function LoginPage() {
     } else {
       setErrorMsg(res.message || 'Invalid credentials.');
     }
+  };
+
+  const handleGoogleLogin = async () => {
+    setErrorMsg('');
+    const res = await loginWithGoogle();
+    if (res.success) window.location.href = res.user.role === 'Guest' ? '/guest' : '/dashboard';
+    else setErrorMsg(res.message || 'Google sign-in was not completed.');
   };
 
   return (
@@ -76,6 +83,7 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="off"
               className="w-full pl-9 pr-4 py-2.5 bg-slate-55 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-white focus:outline-none focus:border-teal-500 transition font-semibold"
               placeholder="e.g. name@property.com"
               required
@@ -101,6 +109,7 @@ export default function LoginPage() {
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
               className="w-full pl-9 pr-10 py-2.5 bg-slate-55 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-white focus:outline-none focus:border-teal-500 transition font-semibold"
               placeholder="••••••••••••"
               required
@@ -135,6 +144,11 @@ export default function LoginPage() {
           Sign In
         </button>
       </form>
+
+      <div className="flex items-center gap-3 py-1"><div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" /><span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">or</span><div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" /></div>
+      <button type="button" onClick={handleGoogleLogin} className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+        Continue with Google
+      </button>
 
       {/* Redirect Link */}
       <div className="text-center pt-2 text-[10.5px] font-semibold text-slate-450">

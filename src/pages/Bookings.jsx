@@ -1,6 +1,6 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { HotelContext } from '../contexts/HotelContext';
-import { collection, onSnapshot, query, where, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import api from '../utils/api';
 import { Calendar, Search, Plus, Trash2, Edit, X, User } from 'lucide-react';
@@ -13,9 +13,9 @@ export default function Bookings() {
   // Modal states
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState('');
-  const [restaurantName, setRestaurantName] = useState('Atithi Dining Hall');
+  const [restaurantName, setRestaurantName] = useState('');
   const [room, setRoom] = useState('');
-  const [type, setType] = useState('Standard Queen');
+  const [type, setType] = useState('');
   const [amount, setAmount] = useState(6000);
 
   const [activeTab, setActiveTab] = useState('stays');
@@ -68,7 +68,7 @@ export default function Bookings() {
       setName('');
       setRoom('');
     } catch (err) {
-      console.error('Failed to create booking via backend:', err);
+      console.error('Failed to create booking in Firebase:', err);
     }
   };
 
@@ -76,7 +76,7 @@ export default function Bookings() {
     try {
       await api.put(`/api/bookings/${id}/status`, { status: nextStatus });
     } catch (err) {
-      console.error('Failed to update booking status via backend:', err);
+      console.error('Failed to update booking status in Firebase:', err);
     }
   };
 

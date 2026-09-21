@@ -1,10 +1,17 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import { AuthContext } from './AuthContext';
 import api from '../utils/api';
 
 export const HotelContext = createContext();
+
+const canAccessHotel = (user, hotelId) => {
+  if (!user) return false;
+  if (user.role === 'Super Admin') return true;
+  if (user.role === 'Manager') return user.hotelId === hotelId;
+  return true;
+};
 
 export const HotelProvider = ({ children }) => {
   const [hotels, setHotels] = useState([]);
@@ -53,6 +60,7 @@ export const HotelProvider = ({ children }) => {
   }, [darkMode]);
 
   const enterWorkspace = (id) => {
+    if (!canAccessHotel(user, id)) return;
     const found = hotels.find((h) => h.id === id);
     if (found) {
       setActiveWorkspaceHotel(found);
@@ -64,6 +72,7 @@ export const HotelProvider = ({ children }) => {
   };
 
   const selectHotel = (id) => {
+    if (!canAccessHotel(user, id)) return;
     const found = hotels.find((h) => h.id === id);
     if (found) {
       setActiveWorkspaceHotel(found);
@@ -81,7 +90,12 @@ export const HotelProvider = ({ children }) => {
 
   const updateHotel = async (id, updatedFields) => {
     try {
+      if (!canAccessHotel(user, id)) {
+        throw new Error('You can only update your assigned hotel.');
+      }
       await api.put(`/api/hotels/${id}`, updatedFields);
+      // The onSnapshot will automatically catch this and update the state,
+      // but we can proactively update activeWorkspaceHotel for immediate UI response.
       if (activeWorkspaceHotel?.id === id) {
         setActiveWorkspaceHotel(prev => ({ ...prev, ...updatedFields }));
       }
@@ -106,7 +120,11 @@ export const HotelProvider = ({ children }) => {
     setDarkMode(!darkMode);
   };
 
-  const activeHotel = activeWorkspaceHotel;
+  // A manager's assigned hotel remains the data scope after leaving its workspace.
+  // `activeWorkspaceHotel` controls only the workspace UI (breadcrumb and detail view).
+  const activeHotel = activeWorkspaceHotel || (
+    user?.role === 'Manager' ? hotels.find((hotel) => hotel.id === user.hotelId) || null : null
+  );
 
   return (
     <HotelContext.Provider value={{ 

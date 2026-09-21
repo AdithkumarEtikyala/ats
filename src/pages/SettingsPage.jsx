@@ -54,19 +54,29 @@ export default function SettingsPage() {
   const [exportFormat, setExportFormat] = useState('PDF');
   const [autoSchedule, setAutoSchedule] = useState('Weekly');
 
-  const [selectedHotelId, setSelectedHotelId] = useState(activeHotel?.id || (hotels[0]?.id || ''));
+  const manageableHotels = useMemo(() => {
+    if (user?.role === 'Super Admin') return hotels;
+    if (user?.role === 'Manager') return hotels.filter(h => h.id === user.hotelId);
+    return hotels;
+  }, [hotels, user]);
+
+  const [selectedHotelId, setSelectedHotelId] = useState(
+    activeHotel?.id || (user?.role === 'Manager' && user?.hotelId ? user.hotelId : (hotels[0]?.id || ''))
+  );
 
   useEffect(() => {
     if (activeHotel) {
       setSelectedHotelId(activeHotel.id);
+    } else if (user?.role === 'Manager' && user?.hotelId) {
+      setSelectedHotelId(user.hotelId);
     }
-  }, [activeHotel]);
+  }, [activeHotel, user]);
 
   const selectedHotel = useMemo(() => {
-    return hotels.find(h => h.id === selectedHotelId) || hotels[0];
-  }, [hotels, selectedHotelId]);
+    return manageableHotels.find(h => h.id === selectedHotelId) || manageableHotels[0] || hotels[0];
+  }, [manageableHotels, selectedHotelId, hotels]);
 
-  // Handle hotel details edit (Super Admin)
+  // Handle hotel details edit (Super Admin & Manager)
   const handleHotelUpdate = (field, val) => {
     if (!selectedHotel) return;
     updateHotel(selectedHotel.id, { ...selectedHotel, [field]: val });
@@ -89,33 +99,21 @@ export default function SettingsPage() {
       ];
     }
 
-    if (role === 'Hotel Owner') {
-      return [
-        { id: 'hotel-profile', label: 'Hotel Profile', icon: Building },
-        { id: 'hotel-contact', label: 'Hotel Contact Details', icon: Mail },
-        { id: 'hotel-branding', label: 'Hotel Branding', icon: Share2 },
-        { id: 'booking-policies', label: 'Booking Policies', icon: ClipboardList },
-        { id: 'cancellation-policies', label: 'Cancellation Policies', icon: Clock },
-        { id: 'refund-policies', label: 'Refund Policies', icon: CreditCard },
-        { id: 'guest-review-settings', label: 'Guest Review Settings', icon: MessageSquare },
-        { id: 'staff-access-overview', label: 'Staff Access Overview', icon: Key },
-        { id: 'whatsapp-settings', label: 'WhatsApp Settings', icon: MessageSquare },
-        { id: 'notifications', label: 'Notification Settings', icon: Bell },
-        { id: 'revenue-preferences', label: 'Revenue Preferences', icon: CreditCard },
-        { id: 'hotel-preferences', label: 'Hotel Preferences', icon: Settings }
-      ];
-    }
-
     if (role === 'Manager') {
       return [
+        { id: 'hotels-config', label: 'Hotel Management (Assigned)', icon: Building },
         { id: 'hotel-operations', label: 'Hotel Operations Settings', icon: Settings },
         { id: 'ticket-management', label: 'Ticket Management Settings', icon: ClipboardList },
         { id: 'sla-settings', label: 'SLA Settings', icon: Clock },
         { id: 'staff-assignment', label: 'Staff Assignment Rules', icon: Key },
         { id: 'dept-config', label: 'Department Configuration', icon: Building },
+        { id: 'whatsapp-config', label: 'WhatsApp Configuration', icon: MessageSquare },
         { id: 'whatsapp-templates', label: 'WhatsApp Templates', icon: MessageSquare },
-        { id: 'guest-service', label: 'Guest Service Configuration', icon: Bell },
-        { id: 'notifications-pref', label: 'Notification Preferences', icon: Bell }
+        { id: 'security-access', label: 'Security Settings', icon: Shield },
+        { id: 'notifications', label: 'Notification Settings', icon: Bell },
+        { id: 'feedback-config', label: 'Feedback Management', icon: MessageSquare },
+        { id: 'reports-config', label: 'Reports Settings', icon: ClipboardList },
+        { id: 'theme-config', label: 'Theme Settings', icon: Moon }
       ];
     }
 
@@ -300,14 +298,16 @@ export default function SettingsPage() {
                 <h3 className="text-sm font-black border-b dark:border-slate-855 pb-2 text-slate-850 dark:text-white">Hotel Management</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] text-slate-500 uppercase mb-1.5">Select Hotel to Configure</label>
+                    <label className="block text-[10px] text-slate-500 uppercase mb-1.5">
+                      {user?.role === 'Manager' ? 'Your Assigned Hotel Scope' : 'Select Hotel to Configure'}
+                    </label>
                     <select 
                       value={selectedHotelId} 
                       onChange={(e) => setSelectedHotelId(e.target.value)} 
-                      disabled={!!activeHotel}
+                      disabled={!!activeHotel || user?.role === 'Manager'}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-855 rounded-xl disabled:opacity-65 disabled:cursor-not-allowed"
                     >
-                      {hotels.map((h) => (
+                      {manageableHotels.map((h) => (
                         <option key={h.id} value={h.id}>{h.name} ({h.city})</option>
                       ))}
                     </select>

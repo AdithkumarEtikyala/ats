@@ -2,8 +2,9 @@ import React, { useContext, useMemo, useState, useEffect } from 'react';
 import { AuthContext } from '../contexts/AuthContext';
 import { HotelContext } from '../contexts/HotelContext';
 import { TicketContext } from '../contexts/TicketContext';
-import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../utils/firebase';
+import api from '../utils/api';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
@@ -257,7 +258,7 @@ export default function Dashboard() {
 
   const dailyRevenue = useMemo(() => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const revenueMap = { Mon: 4200, Tue: 5800, Wed: 5000, Thu: 7200, Fri: 8800, Sat: 9500, Sun: 11000 };
+    const revenueMap = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
     
     ownerBookings.forEach(b => {
       const date = new Date(b.checkIn);
@@ -306,9 +307,7 @@ export default function Dashboard() {
     if (!bkName || !bkPhone || !bkRoom || !bkArrival) return;
 
     const selectedH = hotels.find(h => h.id === bkHotelId);
-    const id = `bk-${Math.floor(Math.random() * 9000) + 1000}`;
     const newBk = {
-      id,
       hotelId: bkHotelId,
       guestName: bkName,
       guestPhone: bkPhone,
@@ -322,7 +321,7 @@ export default function Dashboard() {
     };
 
     try {
-      await setDoc(doc(db, 'bookings', id), newBk);
+      await api.post('/api/bookings', newBk);
       setBookingModalOpen(false);
       setBkName('');
       setBkPhone('');
@@ -334,9 +333,9 @@ export default function Dashboard() {
 
   const handleCreateTicketSubmit = (e) => {
     e.preventDefault();
-    if (!tkGuest || !tkRoom || !tkType) return;
+    if (!tkGuest || !tkRoom || !tkType || !activeHotel?.id) return;
     createTicket({
-      hotelId: activeHotel?.id || 'hotel-1',
+      hotelId: activeHotel.id,
       guestName: tkGuest,
       roomNumber: tkRoom,
       requestType: tkType,
@@ -397,8 +396,9 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {hotels
                     .filter(h => {
-                      if (user?.role === 'Hotel Owner' && user?.email === 'owner1@atithisphere.com') {
-                        return h.id === 'hotel-1' || h.id === 'hotel-2';
+                      if (user?.role === 'Hotel Owner') {
+                        const assignedIds = Array.isArray(user.hotelIds) ? user.hotelIds : [user.hotelId];
+                        return assignedIds.includes(h.id);
                       }
                       return true;
                     })
